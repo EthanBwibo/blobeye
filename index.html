@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Blobeye · Flat Four</title>
+  <meta name="description" content="An interactive blueprint of the Subaru Impreza WRX STI's flat-four engine. Scroll to turn the drawing, hold to rev, and hear why it rumbles. Unofficial fan project.">
+  <meta name="theme-color" content="#0C3A8A">
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;1,700;1,800&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+</head>
+<body>
+<div id="stage" aria-hidden="true">
+  <canvas id="gl"></canvas>
+  <div class="tag cyl" id="t1">1</div>
+  <div class="tag cyl" id="t2">2</div>
+  <div class="tag cyl" id="t3">3</div>
+  <div class="tag cyl" id="t4">4</div>
+  <div class="tag note" id="tfront">Front of car</div>
+</div>
+<div id="nogl" hidden>This device could not start the 3D drawing. The notes below still read on their own.</div>
+
+<main>
+  <section class="view hero" data-view="0">
+    <div class="panel"><div class="body">
+      <div class="eyebrow">Impreza WRX STI · 2003–2005 · Sheet 1 of 5</div>
+      <h1>Flat <span>four.</span></h1>
+      <p class="lede">The engine under a Blobeye's bonnet scoop lies on its side. Four pistons, two each way, punching outward like a boxer's gloves.</p>
+      <p class="cue">Scroll to turn the drawing · Start the engine below</p>
+    </div></div>
+  </section>
+
+  <section class="view" data-view="1">
+    <div class="panel">
+      <div class="strip"><span>Sheet 2 · Plan view</span><span>Layout</span></div>
+      <div class="body">
+        <h2>Lying down</h2>
+        <p>Seen from above, the cylinders point left and right instead of up. Cylinders 1 and 3 sit on the car's right, 2 and 4 on its left, with 1 at the front.</p>
+        <p>Each piston has a partner moving the opposite way at the same instant, so their shaking largely cancels. The engine is also flat and wide, which keeps its weight low in the car.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" data-view="2">
+    <div class="panel">
+      <div class="strip"><span>Sheet 3 · Front elevation</span><span>Firing order</span></div>
+      <div class="body">
+        <h2>1 – 3 – 2 – 4</h2>
+        <p>Every cylinder fires once in two turns of the crankshaft, so one fires every half turn. The order goes right bank twice, then left bank twice.</p>
+        <div class="order" aria-label="Firing order, live">
+          <div id="o1">1<small>RIGHT</small></div><div id="o3">3<small>RIGHT</small></div>
+          <div id="o2">2<small>LEFT</small></div><div id="o4">4<small>LEFT</small></div>
+        </div>
+        <p class="small">The drawing runs in slow motion at idle so you can follow it.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" data-view="3">
+    <div class="panel">
+      <div class="strip"><span>Sheet 4 · Underside</span><span>Exhaust headers</span></div>
+      <div class="body">
+        <h2>The rumble</h2>
+        <p>The engine fires evenly. The rumble comes from the pipes. With unequal-length headers, one bank's exhaust travels further to the collector, so its pulses arrive late and the beat goes lopsided.</p>
+        <div class="timeline" aria-label="Exhaust pulses arriving at the collector over two crank turns">
+          <i class="tick" id="k1"></i><i class="tick" id="k3"></i><i class="tick" id="k2"></i><i class="tick" id="k4"></i>
+          <i class="head" id="head"></i>
+        </div>
+        <div class="gaps" id="gaps">Gaps between pulses: 180° · 270° · 180° · 90°</div>
+        <p>Switch to <strong>Equal</strong> in the dock and the pulses space out evenly. The note smooths out and the burble goes.</p>
+        <p class="small">Pipe routing and delays are simplified to make the effect easy to see and hear.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" data-view="4">
+    <div class="panel">
+      <div class="strip"><span>Sheet 5 · Three-quarter view</span><span>Run it</span></div>
+      <div class="body">
+        <h2>Hold to rev</h2>
+        <p>Start the engine, then press and hold <strong>Rev</strong>. Flip the headers while it runs and listen to the beat change.</p>
+        <p class="small">The sound is generated live in your browser from the same firing model as the drawing. Nothing is recorded.</p>
+        <p class="small">Unofficial fan project. Not affiliated with or endorsed by Subaru Corporation.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="dock" role="group" aria-label="Engine controls">
+  <button class="btn" id="sound" aria-pressed="false">Start engine</button>
+  <span class="lbl hd">Headers</span>
+  <div class="seg" role="group" aria-label="Exhaust headers">
+    <button class="btn" id="hUneq" aria-pressed="true">Unequal</button>
+    <button class="btn" id="hEq" aria-pressed="false">Equal</button>
+  </div>
+  <button class="btn" id="rev">Hold to rev</button>
+  <div class="tach">
+    <span class="lbl">RPM</span>
+    <div class="bar"><i id="tbar"></i></div>
+    <output id="rpm">850</output>
+  </div>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
