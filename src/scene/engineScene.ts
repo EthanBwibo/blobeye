@@ -10,13 +10,14 @@ import {
   type EngineState,
   type HeaderMode,
 } from '../engine/model';
-import { CAMERA_KEYS, NARROW_WIDTH, cameraDistanceScale, smoothstep } from './camera';
+import { CAMERA_KEYS, NARROW_WIDTH, cameraDistanceScale, narrowCentre, smoothstep } from './camera';
 
 export interface EngineScene {
   /** Draw one frame. `sheet` is the scroll position measured in sheets (0 to 4). */
   render(dt: number, sheet: number): void;
   setHeaders(mode: HeaderMode): void;
-  resize(): void;
+  /** `clear` is the share of a narrow screen left above the notes; omit it to keep the last value. */
+  resize(clear?: number | null): void;
   applyTheme(): void;
   /** Which cylinders are on their power stroke right now, for the HTML labels. */
   readonly firing: boolean[];
@@ -205,20 +206,22 @@ export function createEngineScene(
   let width = 1;
   let height = 1;
   let narrow = false;
+  let clearAbove = 0.56;
   const pointer = { x: 0, y: 0 };
   const first = CAMERA_KEYS[0]!;
   const cam = { position: v(...first.position), target: v(...first.target) };
   const want = { position: v(0, 0, 0), target: v(0, 0, 0) };
   const scratch = v(0, 0, 0);
 
-  function resize(): void {
+  function resize(clear?: number | null): void {
+    if (clear != null) clearAbove = clear;
     width = window.innerWidth;
     height = window.innerHeight;
     narrow = width <= NARROW_WIDTH;
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     // Shift the picture off-centre so the engine sits clear of the notes.
-    if (narrow) camera.setViewOffset(width, height, 0, height * 0.22, width, height);
+    if (narrow) camera.setViewOffset(width, height, 0, height * (0.5 - narrowCentre(clearAbove)), width, height);
     else camera.setViewOffset(width, height, -width * 0.2, height * 0.04, width, height);
     camera.updateProjectionMatrix();
   }
@@ -247,7 +250,7 @@ export function createEngineScene(
     const t = smoothstep(Math.min(1, Math.max(0, sheet - i)));
     want.position.set(...a.position).lerp(scratch.set(...b.position), t);
     want.target.set(...a.target).lerp(scratch.set(...b.target), t);
-    want.position.sub(want.target).multiplyScalar(cameraDistanceScale(camera.aspect, narrow)).add(want.target);
+    want.position.sub(want.target).multiplyScalar(cameraDistanceScale(camera.aspect, narrow, clearAbove)).add(want.target);
 
     const ease = reducedMotion ? 1 : 1 - Math.exp(-dt * 4.5);
     cam.position.lerp(want.position, ease);

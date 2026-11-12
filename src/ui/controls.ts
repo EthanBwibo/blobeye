@@ -76,7 +76,8 @@ function layoutTimeline(mode: HeaderMode): void {
   for (const c of CYLINDERS) {
     byId(`k${c.n}`).style.left = `${(arrivalAngle(c, mode) / 720) * 100}%`;
   }
-  byId('gaps').textContent = `Gaps between pulses: ${pulseGaps(mode)
+  // "between pulses" is hidden on phones so the line stays on one row.
+  byId('gaps').innerHTML = `Gaps<span class="wide"> between pulses</span>: ${pulseGaps(mode)
     .map((g) => `${g}°`)
     .join(' · ')}`;
 }

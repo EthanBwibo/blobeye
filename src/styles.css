@@ -135,18 +135,35 @@ button{font:inherit; color:inherit; cursor:pointer; -webkit-tap-highlight-color:
 .tach .bar i{position:absolute; left:0; top:0; bottom:0; width:0; background:var(--ink)}
 .tach .bar::after{content:""; position:absolute; right:0; top:0; bottom:0; width:12.5%; background:var(--fire); opacity:.45}
 .tach output{font-family:var(--f-mono); font-size:13px; font-variant-numeric:tabular-nums; color:var(--ink); min-width:8ch; text-align:right}
+.toggle{display:none}
 .lbl{font-family:var(--f-mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft)}
 
 @media (max-width:760px){
   :root{--dock-h:122px}
   body{font-size:16px}
-  .view{align-items:flex-end}
+  .view{align-items:flex-end; padding-block:24px calc(var(--dock-h) + 12px)}
   .view > .panel{margin-left:0}
   .hero{align-items:flex-end}
   .lede{font-size:17px}
-  .body{padding:14px 14px 16px; gap:10px}
-  .tach{margin-left:0; flex:1 1 100%; justify-content:space-between}
+  .body{padding:12px 14px 14px; gap:8px}
+  /* dock: two rows, with the rev button sharing the tachometer's row */
+  .tach{margin-left:0; flex:1 1 180px; justify-content:space-between}
   .tach .bar{flex:1; width:auto}
   .lbl.hd{display:none}
+  /* notes: headline and live readout only, the rest behind a More button (src/ui/layout.ts) */
+  .panel.collapsible:not(.open) .more, .gaps .wide{display:none}
+  .timeline{height:44px}
+  .toggle{
+    display:block; width:100%; height:40px; padding:0 14px; text-align:left;
+    background:transparent; color:var(--ink); border:0; border-top:1.5px solid var(--ink);
+    font-family:var(--f-mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+  }
+  .toggle::after{content:"+"; float:right; font-size:14px; letter-spacing:0}
+  .toggle[aria-expanded="true"]::after{content:"\2212"}
+  .toggle:focus-visible{outline:2px solid var(--gold); outline-offset:-4px}
+}
+/* short phones: the timeline shows the gaps, so the figures wait behind More too */
+@media (max-width:760px) and (max-height:700px){
+  .panel.collapsible:not(.open) .gaps{display:none}
 }
 @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} .timeline .tick{transition:none} }
