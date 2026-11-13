@@ -12,6 +12,19 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;1,700;1,800&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 </head>
 <body>
+<noscript><style>#intro{display:none}</style></noscript>
+<div id="intro" role="dialog" aria-modal="true" aria-labelledby="intro-title">
+  <div class="card">
+    <div class="eyebrow">Blobeye · An interactive blueprint</div>
+    <p class="title" id="intro-title">Flat <span>four.</span></p>
+    <p class="lede">Scroll to turn the drawing, hold to rev, and hear why it rumbles.</p>
+    <div class="actions">
+      <button class="btn solid" id="enterSound">Enter with sound</button>
+      <button class="btn" id="enterQuiet">Enter without sound</button>
+    </div>
+    <p class="small">You can start or mute the engine at any time from the controls. Unofficial fan project.</p>
+  </div>
+</div>
 <div id="stage" aria-hidden="true">
   <canvas id="gl"></canvas>
   <div class="tag cyl" id="t1">1</div>
