@@ -3,6 +3,7 @@ import { ExhaustSynth } from './audio/exhaust';
 import { createEngineState, stepEngine } from './engine/model';
 import { createEngineScene, type EngineScene } from './scene/engineScene';
 import { bindControls } from './ui/controls';
+import { clearFraction, initNotes, trackDockHeight } from './ui/layout';
 import { updateReadouts } from './ui/readouts';
 
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -12,6 +13,8 @@ const synth = new ExhaustSynth(state);
 const canvas = document.getElementById('gl') as HTMLCanvasElement;
 const cylinderLabels = [1, 2, 3, 4].map((n) => document.getElementById(`t${n}`)!);
 const frontLabel = document.getElementById('tfront')!;
+initNotes();
+
 const sheets = Array.from(document.querySelectorAll<HTMLElement>('.view'));
 
 // The drawing needs WebGL. Without it the notes and readouts still work.
@@ -31,7 +34,12 @@ bindControls(state, {
 
 if (scene) {
   const s = scene;
-  window.addEventListener('resize', () => s.resize());
+  // The drawing sits in the space the notes and dock leave, so re-measure when either changes size.
+  const fit = () => s.resize(clearFraction());
+  window.addEventListener('resize', fit);
+  trackDockHeight(fit);
+  void document.fonts?.ready.then(fit);
+  fit();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => s.applyTheme());
   new MutationObserver(() => s.applyTheme()).observe(document.documentElement, {
     attributes: true,

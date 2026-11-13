@@ -26,7 +26,6 @@ Reference sites for feel: lusion.co and unseen.co (scrolling and motion), oryzo.
 
 **Known issues**
 
-- On phones the notes panel covers most of the engine on sheet 4.
 - Audio uses the deprecated `ScriptProcessorNode`.
 - Fonts come from Google Fonts; offline the page falls back to system fonts.
 - The JS bundle is about 560 kB (140 kB gzipped), nearly all Three.js.
@@ -55,6 +54,7 @@ src/scene/camera.ts       camera keyframes, one per sheet
 src/audio/exhaust.ts      the synth
 src/ui/controls.ts        dock buttons
 src/ui/readouts.ts        tachometer, firing strip, pulse timeline
+src/ui/layout.ts          phone layout: the More button on the notes, dock height, space left for the drawing
 docs/FACTS.md           what is confirmed, illustrative, unverified
 docs/ROADMAP.md         milestones and issues
 scripts/issues.json     the same roadmap as data
@@ -76,6 +76,7 @@ Add a new behaviour by putting the numbers in `model.ts` first, testing them, th
 - **Coordinates.** +z is the front of the car, -x is the car's right, +y is up. Cylinder 1 is front right.
 - **The drawing runs in slow motion.** `drawingRevsPerSecond` is deliberately far slower than the real rpm. The sound uses real rpm.
 - **Adding a sheet** means a `<section class="view">` in `index.html` and a matching entry in `CAMERA_KEYS`.
+- **Notes on phones.** Below 760px a panel shows its heading, first sentence and live readout; anything with the class `more` waits behind a More button. Keep each panel's always-visible part short enough that the top 35% of a 360×640 screen stays clear.
 - **Reduced motion** is honoured in the scene and CSS. Keep it that way.
 
 ## Working agreements
@@ -91,10 +92,9 @@ Add a new behaviour by putting the numbers in `model.ts` first, testing them, th
 ## What to do next, in order
 
 1. **Listen to it.** Run it, start the engine, hold rev, switch headers. Write down what sounds wrong, then tune `src/audio/exhaust.ts`.
-2. Fix the phone layout on sheet 4.
-3. Add smooth scrolling and the intro screen.
-4. Decide how to get the car body (licensed model or built in code). This gates all of milestone 2.
-5. Carry on down `docs/ROADMAP.md`.
+2. Add smooth scrolling and the intro screen.
+3. Decide how to get the car body (licensed model or built in code). This gates all of milestone 2.
+4. Carry on down `docs/ROADMAP.md`.
 
 ## Decisions already made
 
