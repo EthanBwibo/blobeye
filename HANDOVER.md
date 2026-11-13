@@ -54,6 +54,8 @@ src/scene/camera.ts       camera keyframes, one per sheet
 src/audio/exhaust.ts      the synth
 src/ui/controls.ts        dock buttons
 src/ui/readouts.ts        tachometer, firing strip, pulse timeline
+src/ui/scroll.ts          smooth scrolling (Lenis), a snap point per sheet, keyboard paging
+src/ui/intro.ts           the title card with the sound choice
 src/ui/layout.ts          phone layout: the More button on the notes, dock height, space left for the drawing
 docs/FACTS.md           what is confirmed, illustrative, unverified
 docs/ROADMAP.md         milestones and issues
@@ -77,7 +79,8 @@ Add a new behaviour by putting the numbers in `model.ts` first, testing them, th
 - **The drawing runs in slow motion.** `drawingRevsPerSecond` is deliberately far slower than the real rpm. The sound uses real rpm.
 - **Adding a sheet** means a `<section class="view">` in `index.html` and a matching entry in `CAMERA_KEYS`.
 - **Notes on phones.** Below 760px a panel shows its heading, first sentence and live readout; anything with the class `more` waits behind a More button. Keep each panel's always-visible part short enough that the top 35% of a 360×640 screen stays clear.
-- **Reduced motion** is honoured in the scene and CSS. Keep it that way.
+- **Reduced motion** is honoured in the scene, the scrolling, the intro and CSS. Keep it that way. With it on, Lenis is not started at all.
+- **Do not add `scroll-behavior: smooth` in CSS.** Lenis drives the scrolling and the two fight.
 
 ## Working agreements
 
@@ -92,9 +95,8 @@ Add a new behaviour by putting the numbers in `model.ts` first, testing them, th
 ## What to do next, in order
 
 1. **Listen to it.** Run it, start the engine, hold rev, switch headers. Write down what sounds wrong, then tune `src/audio/exhaust.ts`.
-2. Add smooth scrolling and the intro screen.
-3. Decide how to get the car body (licensed model or built in code). This gates all of milestone 2.
-4. Carry on down `docs/ROADMAP.md`.
+2. Decide how to get the car body (licensed model or built in code). This gates all of milestone 2.
+3. Carry on down `docs/ROADMAP.md`.
 
 ## Decisions already made
 
