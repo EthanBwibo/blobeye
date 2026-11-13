@@ -3,8 +3,10 @@ import { ExhaustSynth } from './audio/exhaust';
 import { createEngineState, stepEngine } from './engine/model';
 import { createEngineScene, type EngineScene } from './scene/engineScene';
 import { bindControls } from './ui/controls';
+import { initIntro } from './ui/intro';
 import { clearFraction, initNotes, trackDockHeight } from './ui/layout';
 import { updateReadouts } from './ui/readouts';
+import { initScroll } from './ui/scroll';
 
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const state = createEngineState();
@@ -46,6 +48,11 @@ if (scene) {
     attributeFilter: ['data-theme'],
   });
 }
+
+// The intro holds the page until the visitor chooses; "with sound" presses the dock's own engine button.
+initIntro(initScroll(sheets, reducedMotion), reducedMotion, (withSound) => {
+  if (withSound) document.getElementById('sound')?.click();
+});
 
 /** Scroll position measured in sheets: 0 at the first sheet, 4 at the last. */
 function currentSheet(): number {
