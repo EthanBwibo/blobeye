@@ -8,6 +8,10 @@
   --text:#10203F;
   --gold:#A87B1E;       /* wheel gold, the one accent */
   --fire:#DA4E14;       /* combustion and exhaust pulses */
+  --body-blue:#1D4FB8;  /* the car's paint */
+  --body-dark:#0A1B3D;  /* glass, tyres, openings */
+  --body-line:#061737;  /* edge lines on the paint, darker than --ink so they show on blue */
+  --wheel-gold:#C79A2B; /* the car's wheels */
   --grid:rgba(12,58,138,.09);
   --grid-major:rgba(12,58,138,.16);
   --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
@@ -19,12 +23,14 @@
   :root:not([data-theme="light"]){
     --paper:#0A2760; --paper-2:#0E2F70; --ink:#D5E3FF; --ink-soft:#8FA9DB; --text:#EAF0FF;
     --gold:#E6BC5C; --fire:#FF8B4A; --grid:rgba(213,227,255,.07); --grid-major:rgba(213,227,255,.13);
+    --body-blue:#2B63D6; --body-dark:#050E22; --body-line:#D5E3FF; --wheel-gold:#E6BC5C;
     color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
   --paper:#0A2760; --paper-2:#0E2F70; --ink:#D5E3FF; --ink-soft:#8FA9DB; --text:#EAF0FF;
   --gold:#E6BC5C; --fire:#FF8B4A; --grid:rgba(213,227,255,.07); --grid-major:rgba(213,227,255,.13);
+  --body-blue:#2B63D6; --body-dark:#050E22; --body-line:#D5E3FF; --wheel-gold:#E6BC5C;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -82,8 +88,8 @@ main{position:relative; z-index:1}
 .body{padding:18px 18px 20px; display:flex; flex-direction:column; gap:12px}
 h1,h2{font-family:var(--f-display); font-style:italic; font-weight:800; text-transform:uppercase;
   line-height:.92; margin:0; color:var(--ink); text-wrap:balance; letter-spacing:.005em}
-h1{font-size:clamp(58px,11vw,104px)}
-h1 span{color:var(--gold)}
+h1,h2.big{font-size:clamp(58px,11vw,104px)}
+h1 span,h2.big span{color:var(--gold)}
 h2{font-size:clamp(38px,6vw,52px)}
 p{margin:0; max-width:60ch}
 .lede{font-size:19px}

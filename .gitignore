@@ -6,3 +6,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# Reference images for tracing the car. Not ours to publish.
+docs/reference/

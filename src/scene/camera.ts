@@ -4,7 +4,11 @@ export interface CameraKey {
   target: [number, number, number];
 }
 
+/** The engine chapter starts at this sheet. The sheets before it show the whole car. */
+export const ENGINE_FIRST_SHEET = 1;
+
 export const CAMERA_KEYS: readonly CameraKey[] = [
+  { position: [24.6, 9.1, 27.4], target: [0, 0.9, -9.0] }, // the whole car, front three-quarter
   { position: [5.6, 3.3, 7.0], target: [0, -0.2, 0] }, // three-quarter
   { position: [0, 10.5, 1.6], target: [0, 0, 0] }, // plan view
   { position: [0, 5.2, 8.4], target: [0, -0.1, 0] }, // front elevation
