@@ -10,15 +10,21 @@ import {
   type EngineState,
   type HeaderMode,
 } from '../engine/model';
-import { CAMERA_KEYS, NARROW_WIDTH, cameraDistanceScale, narrowCentre, smoothstep } from './camera';
+import { CAR_CENTRE, ENGINE_BAY, WHEELS } from '../car/model';
+import { ENGINE_FIRST_SHEET, LAST_SHEET, NARROW_WIDTH, cameraAt, cameraDistanceScale, diveDepth, narrowCentre, smoothstep } from './camera';
+import { createCar } from './carScene';
 
 export interface EngineScene {
-  /** Draw one frame. `sheet` is the scroll position measured in sheets (0 to 4). */
+  /** Draw one frame. `sheet` is the scroll position measured in sheets, 0 at the first. */
   render(dt: number, sheet: number): void;
   setHeaders(mode: HeaderMode): void;
   /** `clear` is the share of a narrow screen left above the notes; omit it to keep the last value. */
   resize(clear?: number | null): void;
   applyTheme(): void;
+  /** Hold the car at a fixed angle (radians) instead of the slow hero turn. `null` lets it turn again. */
+  holdTurn(angle: number | null): void;
+  /** Lift the bonnet by this angle in radians. 0 shuts it. */
+  openBonnet(angle: number): void;
   /** Which cylinders are on their power stroke right now, for the HTML labels. */
   readonly firing: boolean[];
 }
@@ -39,7 +45,7 @@ export function createEngineScene(
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
+  const camera = new THREE.PerspectiveCamera(cameraAt(0).fov, 1, 0.5, 400);
 
   // Blueprint look: paper-coloured faces, ink edges. No lighting needed.
   const offset = { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 };
@@ -53,8 +59,25 @@ export function createEngineScene(
     fire: new THREE.MeshBasicMaterial(),
   };
 
+  // The car is built 100 units long. Scale it so the engine, which is drawn at its own size, fits the engine bay.
+  const CAR_SCALE = 0.273;
+  const carCentre = new THREE.Vector3(...CAR_CENTRE).sub(new THREE.Vector3(...ENGINE_BAY)).multiplyScalar(CAR_SCALE);
+
+  // `rig` turns the car and engine together about the middle of the car.
+  const rig = new THREE.Group();
+  rig.position.copy(carCentre);
+  const world = new THREE.Group();
+  world.position.copy(carCentre).negate();
+  rig.add(world);
+  scene.add(rig);
+
   const engine = new THREE.Group();
-  scene.add(engine);
+  world.add(engine);
+
+  const car = createCar();
+  car.group.scale.setScalar(CAR_SCALE);
+  car.group.position.set(...ENGINE_BAY).multiplyScalar(-CAR_SCALE);
+  world.add(car.group);
 
   function part(
     geometry: THREE.BufferGeometry,
@@ -198,6 +221,7 @@ export function createEngineScene(
     mat.soft.color = ink;
     mat.hull.color = ink;
     mat.gold.color = token('--gold');
+    car.applyTheme(token);
     mat.fire.color = token('--fire');
     for (const f of flashes) f.material.color = token('--fire');
   }
@@ -208,8 +232,8 @@ export function createEngineScene(
   let narrow = false;
   let clearAbove = 0.56;
   const pointer = { x: 0, y: 0 };
-  const first = CAMERA_KEYS[0]!;
-  const cam = { position: v(...first.position), target: v(...first.target) };
+  const first = cameraAt(0);
+  const cam = { position: v(...first.position), target: v(...first.target), fov: first.fov };
   const want = { position: v(0, 0, 0), target: v(0, 0, 0) };
   const scratch = v(0, 0, 0);
 
@@ -230,31 +254,42 @@ export function createEngineScene(
     pointer.y = e.clientY / height - 0.5;
   });
 
-  function place(el: HTMLElement, x: number, y: number, z: number): void {
+  function place(el: HTMLElement, x: number, y: number, z: number, show = true): void {
     scratch.set(x, y, z).project(camera);
     const px = (scratch.x * 0.5 + 0.5) * width;
     const py = (-scratch.y * 0.5 + 0.5) * height;
     el.style.transform = `translate(${px.toFixed(1)}px,${py.toFixed(1)}px) translate(-50%,-50%)`;
-    el.style.visibility = scratch.z < 1 ? 'visible' : 'hidden';
+    el.style.visibility = show && scratch.z < 1 ? 'visible' : 'hidden';
   }
 
   const firing = [false, false, false, false];
   let sway = 0;
+  let turn = 0;
+  let heldTurn: number | null = null;
+  /** Seconds since the visitor arrived on the last sheet, where the car turns away and drives off. */
+  let leaving = 0;
+  /** How far the bonnet lifts, the angle the car turns to before it leaves, and how it gathers speed. */
+  const BONNET_OPEN = 0.95;
+  const AWAY_ANGLE = 2.4;
+  const TURN_TIME = 1.4;
+  const PULL_AWAY = 9;
+  const range = (x: number, from: number, to: number) => smoothstep(Math.min(1, Math.max(0, (x - from) / (to - from))));
 
   function render(dt: number, sheet: number): void {
-    // Camera: blend between the two nearest sheets
-    const last = CAMERA_KEYS.length - 1;
-    const i = Math.min(last, Math.floor(sheet));
-    const a = CAMERA_KEYS[i]!;
-    const b = CAMERA_KEYS[Math.min(last, i + 1)]!;
-    const t = smoothstep(Math.min(1, Math.max(0, sheet - i)));
-    want.position.set(...a.position).lerp(scratch.set(...b.position), t);
-    want.target.set(...a.target).lerp(scratch.set(...b.target), t);
+    // Camera: blend between the two nearest keys
+    const view = cameraAt(sheet);
+    want.position.set(...view.position);
+    want.target.set(...view.target);
     want.position.sub(want.target).multiplyScalar(cameraDistanceScale(camera.aspect, narrow, clearAbove)).add(want.target);
 
     const ease = reducedMotion ? 1 : 1 - Math.exp(-dt * 4.5);
     cam.position.lerp(want.position, ease);
     cam.target.lerp(want.target, ease);
+    cam.fov += (view.fov - cam.fov) * ease;
+    if (Math.abs(camera.fov - cam.fov) > 1e-4) {
+      camera.fov = cam.fov;
+      camera.updateProjectionMatrix();
+    }
     camera.position.copy(cam.position);
     if (!reducedMotion) {
       camera.position.x += pointer.x * 0.5;
@@ -262,9 +297,32 @@ export function createEngineScene(
     }
     camera.lookAt(cam.target);
 
-    // A slow sway on the opening sheet only
-    if (!reducedMotion && sheet < 0.5) sway += dt * 0.12;
-    engine.rotation.y = Math.sin(sway) * 0.22 * Math.max(0, 1 - sheet * 2);
+    // Going in: the bonnet lifts, then the body fades as the camera passes through it. Coming out is the same in reverse.
+    const depth = diveDepth(sheet);
+    car.setBonnet(BONNET_OPEN * range(depth, 0.2, 0.5));
+    car.setOpacity(1 - range(depth, 0.7, 0.94));
+    engine.visible = depth > 0.18;
+    const showLabels = depth > 0.9;
+
+    // The whole car turns slowly on the opening sheet, and comes round to face the camera as you scroll on.
+    if (!reducedMotion && sheet < 0.5) turn = (turn + dt * 0.16) % (Math.PI * 2);
+    const unwound = turn > Math.PI ? turn - Math.PI * 2 : turn;
+    // On the last sheet it turns away and drives off. With reduced motion it turns and stays parked.
+    const onLast = sheet > LAST_SHEET - 0.03;
+    if (reducedMotion) leaving = onLast ? TURN_TIME : 0;
+    else if (onLast) leaving += dt;
+    else if (sheet < LAST_SHEET - 0.1) leaving = 0;
+    const driving = Math.max(0, leaving - TURN_TIME * 0.7);
+    const travelled = Math.min(90, 0.5 * PULL_AWAY * driving * driving);
+    const heading = sheet < ENGINE_FIRST_SHEET ? unwound * (1 - range(sheet, 0, 0.4)) : AWAY_ANGLE * range(leaving, 0, TURN_TIME);
+    rig.rotation.y = heldTurn ?? heading;
+    rig.position.set(carCentre.x + Math.sin(rig.rotation.y) * travelled, carCentre.y, carCentre.z + Math.cos(rig.rotation.y) * travelled);
+    car.setRoll(travelled / (WHEELS.radius * CAR_SCALE));
+
+    // A slow sway on the engine's opening sheet only
+    const intoEngine = sheet - ENGINE_FIRST_SHEET;
+    if (!reducedMotion && Math.abs(intoEngine) < 0.5) sway += dt * 0.12;
+    engine.rotation.y = Math.sin(sway) * 0.22 * Math.max(0, 1 - Math.abs(intoEngine) * 2);
 
     // Moving parts
     crank.rotation.z = (state.crank * Math.PI) / 180;
@@ -288,10 +346,10 @@ export function createEngineScene(
       if (pulse.visible) pulse.position.copy(runs[state.mode][n]!.getPointAt(since / travel));
       if (degreesSince(state.crank, arrivalAngle(c, state.mode)) < 50) collectorHit = true;
 
-      place(labels.cylinders[n]!, c.side * 2.75, 0.95, c.z);
+      place(labels.cylinders[n]!, c.side * 2.75, 0.95, c.z, showLabels);
     });
     collector.scale.setScalar(collectorHit ? 1.5 : 1);
-    place(labels.front, 0, -0.1, 2.35);
+    place(labels.front, 0, -0.1, 2.35, showLabels);
 
     if (!reducedMotion) {
       const shake = 0.012 * (1 + ((state.rpm - 850) / 6150) * 3);
@@ -305,5 +363,5 @@ export function createEngineScene(
   applyTheme();
   resize();
 
-  return { render, setHeaders, resize, applyTheme, firing };
+  return { render, setHeaders, resize, applyTheme, firing, holdTurn: (angle) => void (heldTurn = angle), openBonnet: car.setBonnet };
 }

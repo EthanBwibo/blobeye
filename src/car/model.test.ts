@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest';
+import { CABIN, DOOR_HALF_WIDTH, RING, RING_SIZE, WHEELS, bodyHalfWidth, flareAt, lerpAt, section, sideX, surfacePoint, topHalfWidth, wrapPoint } from './model';
+
+describe('lerpAt', () => {
+  const line = [[10, 0], [0, 4], [-10, 2]] as const;
+  it('returns traced points exactly and blends between them', () => {
+    expect(lerpAt(line, 0)).toBe(4);
+    expect(lerpAt(line, 5)).toBeCloseTo(2);
+    expect(lerpAt(line, -5)).toBeCloseTo(3);
+  });
+  it('holds the end values beyond the nose and tail', () => {
+    expect(lerpAt(line, 99)).toBe(0);
+    expect(lerpAt(line, -99)).toBe(2);
+  });
+});
+
+describe('body width', () => {
+  it('keeps the shell to the door width and puts the rest in the flares', () => {
+    expect(bodyHalfWidth(WHEELS.frontZ)).toBe(DOOR_HALF_WIDTH);
+    expect(flareAt(WHEELS.frontZ)).toBeGreaterThan(1);
+    expect(flareAt(0)).toBe(0);
+  });
+  it('narrows the cabin to the roof and widens again over the boot', () => {
+    expect(topHalfWidth(0)).toBe(CABIN.roofHalfWidth);
+    expect(topHalfWidth((CABIN.cowl + CABIN.roofFront) / 2)).toBeGreaterThan(CABIN.roofHalfWidth);
+    expect(topHalfWidth(CABIN.deck - 2)).toBeGreaterThan(CABIN.roofHalfWidth);
+  });
+});
+
+describe('section', () => {
+  it('starts and ends on the centre line', () => {
+    for (const z of [49, 30, 0, -30, -49]) {
+      const ring = section(z);
+      expect(ring).toHaveLength(RING_SIZE);
+      expect(ring[RING.floorCentre]![0]).toBe(0);
+      expect(ring[RING.topCentre]![0]).toBe(0);
+    }
+  });
+  it('never dips below the floor or pokes above the roof line', () => {
+    for (let z = 50; z >= -50; z -= 2.5) {
+      const ring = section(z);
+      const floor = ring[RING.floorCentre]![1];
+      const top = ring[RING.topCentre]![1];
+      for (const [x, y] of ring) {
+        expect(x).toBeGreaterThanOrEqual(0);
+        expect(y).toBeGreaterThanOrEqual(floor - 1e-9);
+        expect(y).toBeLessThanOrEqual(top + 1e-9);
+      }
+    }
+  });
+});
+
+describe('surfacePoint', () => {
+  it('lands on the ring points at whole numbers', () => {
+    const ring = section(-5);
+    for (let i = 0; i < RING_SIZE; i++) {
+      const [x, y] = surfacePoint(-5, i);
+      expect([x, y]).toEqual([ring[i]![0], ring[i]![1]]);
+    }
+  });
+  it('mirrors the right side from the left', () => {
+    const [x, y, z] = surfacePoint(10, 6.4, 1);
+    expect(surfacePoint(10, 6.4, -1)).toEqual([-x, y, z]);
+  });
+});
+
+describe('sideX', () => {
+  it('matches the widest part of the body at mid height', () => {
+    expect(sideX(0, 12)).toBeCloseTo(bodyHalfWidth(0), 1);
+  });
+});
+
+describe('wrapPoint', () => {
+  it('lands on the face of the car straight ahead and straight behind', () => {
+    const [x, y, z] = wrapPoint(1, 0, 12);
+    expect([x, y]).toEqual([0, 12]);
+    expect(z).toBeGreaterThan(48);
+    expect(wrapPoint(1, 0, 8)[2]).toBeLessThanOrEqual(50);
+    expect(wrapPoint(-1, 0, 16)[2]).toBeLessThan(-45);
+  });
+  it('wraps round the corner onto the side of the body', () => {
+    const [x, , z] = wrapPoint(1, 1.1, 12);
+    expect(z).toBeLessThan(45);
+    expect(x).toBeCloseTo(sideX(z, 12), 1);
+  });
+  it('mirrors left to right', () => {
+    const [x, y, z] = wrapPoint(1, 0.6, 14);
+    const [mx, my, mz] = wrapPoint(1, -0.6, 14);
+    expect([mx, my, mz]).toEqual([-x, y, z]);
+  });
+});
