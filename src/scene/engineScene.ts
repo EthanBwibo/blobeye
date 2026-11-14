@@ -25,6 +25,10 @@ export interface EngineScene {
   holdTurn(angle: number | null): void;
   /** Lift the bonnet by this angle in radians. 0 shuts it. */
   openBonnet(angle: number): void;
+  /** True once the car has driven off the last sheet. Never true with reduced motion, where it stays parked. */
+  readonly carGone: boolean;
+  /** Bring the car back and keep it parked until the visitor leaves the last sheet. */
+  park(): void;
   /** Which cylinders are on their power stroke right now, for the HTML labels. */
   readonly firing: boolean[];
 }
@@ -268,6 +272,10 @@ export function createEngineScene(
   let heldTurn: number | null = null;
   /** Seconds since the visitor arrived on the last sheet, where the car turns away and drives off. */
   let leaving = 0;
+  let carGone = false;
+  let parked = false;
+  /** The car is out of the picture once it has gone this far. */
+  const OUT_OF_SIGHT = 45;
   /** How far the bonnet lifts, the angle the car turns to before it leaves, and how it gathers speed. */
   const BONNET_OPEN = 0.95;
   const AWAY_ANGLE = 2.4;
@@ -312,8 +320,13 @@ export function createEngineScene(
     if (reducedMotion) leaving = onLast ? TURN_TIME : 0;
     else if (onLast) leaving += dt;
     else if (sheet < LAST_SHEET - 0.1) leaving = 0;
+    if (parked) {
+      leaving = 0;
+      parked = sheet > LAST_SHEET - 0.1;
+    }
     const driving = Math.max(0, leaving - TURN_TIME * 0.7);
     const travelled = Math.min(90, 0.5 * PULL_AWAY * driving * driving);
+    carGone = travelled > OUT_OF_SIGHT;
     const heading = sheet < ENGINE_FIRST_SHEET ? unwound * (1 - range(sheet, 0, 0.4)) : AWAY_ANGLE * range(leaving, 0, TURN_TIME);
     rig.rotation.y = heldTurn ?? heading;
     rig.position.set(carCentre.x + Math.sin(rig.rotation.y) * travelled, carCentre.y, carCentre.z + Math.cos(rig.rotation.y) * travelled);
@@ -363,5 +376,17 @@ export function createEngineScene(
   applyTheme();
   resize();
 
-  return { render, setHeaders, resize, applyTheme, firing, holdTurn: (angle) => void (heldTurn = angle), openBonnet: car.setBonnet };
+  return {
+    render,
+    setHeaders,
+    resize,
+    applyTheme,
+    firing,
+    holdTurn: (angle) => void (heldTurn = angle),
+    openBonnet: car.setBonnet,
+    get carGone() {
+      return carGone;
+    },
+    park: () => void (parked = true),
+  };
 }
