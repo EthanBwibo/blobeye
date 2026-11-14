@@ -1,9 +1,11 @@
 import './styles.css';
 import { ExhaustSynth } from './audio/exhaust';
 import { createEngineState, stepEngine } from './engine/model';
+import { LAST_SHEET } from './scene/camera';
 import { createEngineScene, type EngineScene } from './scene/engineScene';
 import { bindControls } from './ui/controls';
 import { initIntro } from './ui/intro';
+import { initRallyGate } from './ui/rallyGate';
 import { clearFraction, initNotes, trackDockHeight } from './ui/layout';
 import { updateReadouts } from './ui/readouts';
 import { initScroll } from './ui/scroll';
@@ -52,11 +54,27 @@ if (scene) {
 }
 
 // The intro holds the page until the visitor chooses; "with sound" presses the dock's own engine button.
-initIntro(initScroll(sheets, reducedMotion), reducedMotion, (withSound) => {
+const scroll = initScroll(sheets, reducedMotion);
+initIntro(scroll, reducedMotion, (withSound) => {
   if (withSound) document.getElementById('sound')?.click();
 });
 
-/** Scroll position measured in sheets: 0 at the first sheet, 4 at the last. */
+// The Safari stage takes over the screen, the keys and the engine's revs while it is being driven.
+let playing = false;
+const rally = initRallyGate({
+  engine: state,
+  onStart() {
+    playing = true;
+    scroll.lock();
+  },
+  onExit() {
+    playing = false;
+    scene?.park();
+    scroll.unlock();
+  },
+});
+
+/** Scroll position measured in sheets: 0 at the first sheet. */
 function currentSheet(): number {
   const y = window.scrollY;
   for (let i = sheets.length - 1; i >= 0; i--) {
@@ -74,10 +92,15 @@ let previous = performance.now();
 function frame(now: number): void {
   const dt = Math.min(0.05, (now - previous) / 1000);
   previous = now;
-  stepEngine(state, dt, reducedMotion);
   synth.update();
-  scene?.render(dt, currentSheet());
-  updateReadouts(state, scene?.firing ?? [], cylinderLabels);
+  if (!playing) {
+    const sheet = currentSheet();
+    stepEngine(state, dt, reducedMotion);
+    scene?.render(dt, sheet);
+    updateReadouts(state, scene?.firing ?? [], cylinderLabels);
+    // On the last sheet the car drives off, and the stage takes its place.
+    rally.update(sheet > LAST_SHEET - 0.03, sheet < LAST_SHEET - 0.1, scene?.carGone ?? false);
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
