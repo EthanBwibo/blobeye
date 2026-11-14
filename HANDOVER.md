@@ -15,12 +15,14 @@ Reference sites for feel: lusion.co and unseen.co (scrolling and motion), oryzo.
 **Working**
 
 - The engine chapter: five sheets, scroll-driven camera, live firing order, exhaust pulses, hold-to-rev, header switch, light and dark themes.
+- The Safari stage on the last sheet: when the car drives off, a top-down time trial takes over the screen. One gravel stage of about a minute, arrow keys or WASD, dust, a clock, and the best time kept in `localStorage`. Keyboard only; phones get a note instead.
 - 12 unit tests on the engine model. Typecheck and production build pass.
 - Checked in headless Chrome at 1366×768 and 400×820: all sheets render, no page errors, no sideways scroll, controls respond.
 
 **Not checked**
 
 - **The sound has never been heard by a person.** It was written blind. Expect to tune it (issue: "Tune the exhaust sound by ear").
+- **The Safari stage has never been driven or seen by a person.** It was written blind against its tests: a scripted driver finishes in about 64 seconds without leaving the road. Expect to tune `HANDLING` in `src/game/handling.ts` and the colours by eye.
 - No real phone, no Safari, no Firefox.
 - Several car facts. See `docs/FACTS.md`.
 
@@ -56,6 +58,11 @@ src/ui/controls.ts        dock buttons
 src/ui/readouts.ts        tachometer, firing strip, pulse timeline
 src/ui/scroll.ts          smooth scrolling (Lenis), a snap point per sheet, keyboard paging
 src/ui/intro.ts           the title card with the sound choice
+src/ui/rallyGate.ts       the way in to the Safari stage: fetches the game on the last sheet, starts it when the car has gone
+src/game/handling.ts      how the car drives on gravel (pure, tested)
+src/game/stage.ts         the road, the clock and the best time (pure, tested)
+src/game/sprite.ts        the car from above, from the same traced numbers as the 3D body
+src/game/rally.ts         the game's canvas, keys, dust and readouts; a separate chunk, loaded on demand
 src/ui/layout.ts          phone layout: the More button on the notes, dock height, space left for the drawing
 docs/FACTS.md           what is confirmed, illustrative, unverified
 docs/ROADMAP.md         milestones and issues
