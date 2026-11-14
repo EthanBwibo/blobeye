@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CABIN, DOOR_HALF_WIDTH, RING, RING_SIZE, WHEELS, bodyHalfWidth, endZ, flareAt, lerpAt, section, sideX, surfacePoint, topHalfWidth } from './model';
+import { CABIN, DOOR_HALF_WIDTH, RING, RING_SIZE, WHEELS, bodyHalfWidth, flareAt, lerpAt, section, sideX, surfacePoint, topHalfWidth, wrapPoint } from './model';
 
 describe('lerpAt', () => {
   const line = [[10, 0], [0, 4], [-10, 2]] as const;
@@ -70,12 +70,22 @@ describe('sideX', () => {
   });
 });
 
-describe('endZ', () => {
-  it('finds the nose further back at the corners than in the middle', () => {
-    expect(endZ(0, 12, 1)).toBeGreaterThan(endZ(15, 12, 1));
+describe('wrapPoint', () => {
+  it('lands on the face of the car straight ahead and straight behind', () => {
+    const [x, y, z] = wrapPoint(1, 0, 12);
+    expect([x, y]).toEqual([0, 12]);
+    expect(z).toBeGreaterThan(48);
+    expect(wrapPoint(1, 0, 8)[2]).toBeLessThanOrEqual(50);
+    expect(wrapPoint(-1, 0, 16)[2]).toBeLessThan(-45);
   });
-  it('mirrors left to right and finds the tail behind the car', () => {
-    expect(endZ(-12, 12, 1)).toBe(endZ(12, 12, 1));
-    expect(endZ(0, 16, -1)).toBeLessThan(-45);
+  it('wraps round the corner onto the side of the body', () => {
+    const [x, , z] = wrapPoint(1, 1.1, 12);
+    expect(z).toBeLessThan(45);
+    expect(x).toBeCloseTo(sideX(z, 12), 1);
+  });
+  it('mirrors left to right', () => {
+    const [x, y, z] = wrapPoint(1, 0.6, 14);
+    const [mx, my, mz] = wrapPoint(1, -0.6, 14);
+    expect([mx, my, mz]).toEqual([-x, y, z]);
   });
 });

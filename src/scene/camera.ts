@@ -2,13 +2,18 @@
 export interface CameraKey {
   position: [number, number, number];
   target: [number, number, number];
+  /** Lens angle in degrees. Smaller is a longer lens. Leave out for the usual one. */
+  fov?: number;
 }
+
+/** The lens angle used when a sheet does not set its own. */
+export const DEFAULT_FOV = 34;
 
 /** The engine chapter starts at this sheet. The sheets before it show the whole car. */
 export const ENGINE_FIRST_SHEET = 1;
 
 export const CAMERA_KEYS: readonly CameraKey[] = [
-  { position: [24.6, 9.1, 27.4], target: [0, 0.9, -9.0] }, // the whole car, front three-quarter
+  { position: [40.3, 2.5, 50.8], target: [0, 1.0, -9.0], fov: 20 }, // the whole car, front three-quarter, long lens at door-handle height
   { position: [5.6, 3.3, 7.0], target: [0, -0.2, 0] }, // three-quarter
   { position: [0, 10.5, 1.6], target: [0, 0, 0] }, // plan view
   { position: [0, 5.2, 8.4], target: [0, -0.1, 0] }, // front elevation

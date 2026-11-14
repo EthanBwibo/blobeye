@@ -37,7 +37,7 @@ bindControls(state, {
 if (scene) {
   const s = scene;
   // In development only: lets a script pose the car for screenshots.
-  if (import.meta.env.DEV) Object.assign(window, { holdTurn: s.holdTurn });
+  if (import.meta.env.DEV) Object.assign(window, { holdTurn: s.holdTurn, openBonnet: s.openBonnet });
   // The drawing sits in the space the notes and dock leave, so re-measure when either changes size.
   const fit = () => s.resize(clearFraction());
   window.addEventListener('resize', fit);

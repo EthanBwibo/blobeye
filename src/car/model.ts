@@ -77,18 +77,38 @@ export const WHEELS = {
   width: 5.2,
 } as const;
 
-/** Signature parts. Positions from A: side view for z and heights, front and rear views for widths. */
+/**
+ * Signature parts. Positions along the car and heights are from A, side view. The parts on the nose and
+ * tail are placed by angle, in degrees round the corner from straight ahead (or straight behind), so they
+ * can wrap onto the wings: see `wrapPoint`. Their sizes started from A's front and rear views and were
+ * then drawn larger, so they read at the size the car is shown.
+ */
 export const PARTS = {
+  /** The bonnet is its own panel. `edge` is where it stops, as a place round the ring. */
+  bonnet: { front: 44.5, rear: 22, edge: 10 },
   scoop: { front: 34.3, topFront: 33.1, topRear: 28.8, rear: 27.1, top: 22.6, halfWidth: 4.5 },
-  wing: { baseFront: -38.9, baseRear: -46.6, topFront: -41.3, topRear: -47.0, top: 29.5, under: 28.6, halfWidth: 13.5, upright: 12.6 },
-  headlamp: { outer: 17.0, inner: 9.35, top: 17.25, innerTop: 15.15, bottom: 13.05, lamp: [10.9, 14.5, 1.7] },
-  grille: { topHalfWidth: 7.2, top: 15.4, bottomHalfWidth: 6.3, bottom: 13.05 },
-  intake: { halfWidth: 6.9, top: 9.3, bottom: 7.8 },
-  fogCover: { x: 11.3, y: 8.9, halfWidth: 1.5, halfHeight: 1.8 },
-  tailLamp: { outer: 16.6, inner: 8.6, top: 19.8, innerTop: 19.2, bottom: 15.6 },
-  tailpipe: { x: 7.9, y: 6.9, radius: 1.1 },
+  wing: {
+    front: -41.3, rear: -47.0, top: 29.5, under: 28.6, halfWidth: 13.5, upright: 12.6,
+    /** Each upright is a thin strut, so there is daylight between the wing and the boot. */
+    strut: { baseFront: -43.0, baseRear: -45.4, topFront: -43.8, topRear: -45.9 },
+  },
+  headlamp: {
+    inner: 21, outer: 57, y: 15.1, innerUp: 1.5, outerUp: 2.4, innerDown: 1.6, outerDown: 2.3,
+    /** The two round lamps under the cover, as [angle, height, radius]. */
+    lamps: [[46.5, 15.25, 1.55], [31.5, 14.85, 1.2]],
+  },
+  grille: { top: 15.5, bottom: 13.0, topHalf: 17, bottomHalf: 14 },
+  intake: { top: 9.3, bottom: 6.5, topHalf: 27, bottomHalf: 23 },
+  fogCover: { angle: 43, y: 8.4, radius: 1.9 },
+  tailLamp: { inner: 27, outer: 60, y: 18.0, halfHeight: 2.6, lamps: [[50.5, 18.0, 1.5], [36.5, 18.0, 1.5]] },
+  plate: { half: 15, top: 19.4, bottom: 16.3 },
+  tailpipe: { x: 7.9, y: 6.9, radius: 1.15 },
   glass: { frontLow: 16.9, frontTop: 3.7, rearTop: -18.7, rearLow: -28.7, pillar: -7.7 },
   doors: [18.6, -7.7, -22.9],
+  /** Door handles, each from z to z, and the height they span. */
+  handles: [[-3.0, -6.4], [-18.2, -21.6]],
+  handleHeight: [18.5, 19.7],
+  mirror: { x: 21.4, y: 22.9, z: 13.2 },
 } as const;
 
 /** Where the centre of the engine sits in the car. */
@@ -212,23 +232,31 @@ function inside(z: number, x: number, y: number): boolean {
   return hit;
 }
 
+/** The wrap angles are measured from a point on the centre line this far from the middle of the car. */
+const WRAP_FROM = 30;
+
 /**
- * How far forward (end = 1) or back (end = -1) the body reaches at a point seen from that end.
- * Used to lay the lamps and grille on the curved nose and tail.
+ * A point on the nose (end = 1) or tail (end = -1) at height `y`, found by looking out from inside the car
+ * at `angle` radians from straight ahead (or straight behind). Positive angles are towards the car's left.
+ * Small angles land on the face of the car and large ones on its side, so a shape drawn in angle and
+ * height wraps round the corner. Used to lay the lamps, grille and bumper lines on the body.
  */
-export function endZ(x: number, y: number, end: 1 | -1): number {
-  const ax = Math.abs(x);
-  for (let z = 50.5; z > 30; z -= 0.25) {
-    if (!inside(end * z, ax, y)) continue;
+export function wrapPoint(end: 1 | -1, angle: number, y: number): Point {
+  const sin = Math.sin(angle);
+  const cos = Math.cos(angle);
+  // The traced lines hold their end values beyond the nose and tail, so stop at the ends of the car.
+  const within = (t: number) => WRAP_FROM + t * cos <= 50 && inside(end * (WRAP_FROM + t * cos), Math.abs(t * sin), y);
+  for (let t = 27; t > 0; t -= 0.25) {
+    if (!within(t)) continue;
     // Narrow it down between this step and the one before, so shapes laid on the body stay smooth.
-    let out = z + 0.25;
-    let within = z;
-    for (let i = 0; i < 8; i++) {
-      const mid = (out + within) / 2;
-      if (inside(end * mid, ax, y)) within = mid;
+    let out = t + 0.25;
+    let reach = t;
+    for (let i = 0; i < 10; i++) {
+      const mid = (out + reach) / 2;
+      if (within(mid)) reach = mid;
       else out = mid;
     }
-    return end * within;
+    return [reach * sin, y, end * (WRAP_FROM + reach * cos)];
   }
-  return end * 30;
+  return [0, y, end * WRAP_FROM];
 }

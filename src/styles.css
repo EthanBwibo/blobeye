@@ -12,6 +12,13 @@
   --body-dark:#0A1B3D;  /* glass, tyres, openings */
   --body-line:#061737;  /* edge lines on the paint, darker than --ink so they show on blue */
   --wheel-gold:#C79A2B; /* the car's wheels */
+  --body-light:#6C9BF2; /* paint on surfaces that face up */
+  --body-shade:#102F7A; /* paint low on the body and underneath */
+  --tyre:#1C2433;
+  --metal:#A9B6CC;      /* lamp housings, brake discs, exhaust tip */
+  --tail-red:#C2231D;   /* tail lamps */
+  --tail-glow:#F2775E;  /* the round lamps inside them */
+  --ground-shade:#0A2A6B; /* the car's shadow on the sheet */
   --grid:rgba(12,58,138,.09);
   --grid-major:rgba(12,58,138,.16);
   --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
@@ -24,6 +31,8 @@
     --paper:#0A2760; --paper-2:#0E2F70; --ink:#D5E3FF; --ink-soft:#8FA9DB; --text:#EAF0FF;
     --gold:#E6BC5C; --fire:#FF8B4A; --grid:rgba(213,227,255,.07); --grid-major:rgba(213,227,255,.13);
     --body-blue:#2B63D6; --body-dark:#050E22; --body-line:#D5E3FF; --wheel-gold:#E6BC5C;
+    --body-light:#7FA8FF; --body-shade:#17409A; --tyre:#141C2E; --metal:#93A3C0;
+    --tail-red:#D8342C; --tail-glow:#FF8A70; --ground-shade:#00040F;
     color-scheme:dark;
   }
 }
@@ -31,6 +40,8 @@
   --paper:#0A2760; --paper-2:#0E2F70; --ink:#D5E3FF; --ink-soft:#8FA9DB; --text:#EAF0FF;
   --gold:#E6BC5C; --fire:#FF8B4A; --grid:rgba(213,227,255,.07); --grid-major:rgba(213,227,255,.13);
   --body-blue:#2B63D6; --body-dark:#050E22; --body-line:#D5E3FF; --wheel-gold:#E6BC5C;
+    --body-light:#7FA8FF; --body-shade:#17409A; --tyre:#141C2E; --metal:#93A3C0;
+    --tail-red:#D8342C; --tail-glow:#FF8A70; --ground-shade:#00040F;
   color-scheme:dark;
 }
 *{box-sizing:border-box}

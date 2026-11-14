@@ -11,7 +11,7 @@ import {
   type HeaderMode,
 } from '../engine/model';
 import { CAR_CENTRE, ENGINE_BAY } from '../car/model';
-import { CAMERA_KEYS, ENGINE_FIRST_SHEET, NARROW_WIDTH, cameraDistanceScale, narrowCentre, smoothstep } from './camera';
+import { CAMERA_KEYS, DEFAULT_FOV, ENGINE_FIRST_SHEET, NARROW_WIDTH, cameraDistanceScale, narrowCentre, smoothstep } from './camera';
 import { createCar } from './carScene';
 
 export interface EngineScene {
@@ -23,6 +23,8 @@ export interface EngineScene {
   applyTheme(): void;
   /** Hold the car at a fixed angle (radians) instead of the slow hero turn. `null` lets it turn again. */
   holdTurn(angle: number | null): void;
+  /** Lift the bonnet by this angle in radians. 0 shuts it. */
+  openBonnet(angle: number): void;
   /** Which cylinders are on their power stroke right now, for the HTML labels. */
   readonly firing: boolean[];
 }
@@ -43,7 +45,7 @@ export function createEngineScene(
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 400);
+  const camera = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.5, 400);
 
   // Blueprint look: paper-coloured faces, ink edges. No lighting needed.
   const offset = { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 };
@@ -56,25 +58,6 @@ export function createEngineScene(
     gold: new THREE.MeshBasicMaterial(offset),
     fire: new THREE.MeshBasicMaterial(),
   };
-
-  // The car: body colour in three flat tones so its curves read, with dark glass and gold wheels.
-  const tones = new THREE.DataTexture(new Uint8Array([150, 205, 255]), 3, 1, THREE.RedFormat);
-  tones.minFilter = tones.magFilter = THREE.NearestFilter;
-  tones.needsUpdate = true;
-  const both = { side: THREE.DoubleSide };
-  const carMat = {
-    body: new THREE.MeshToonMaterial({ gradientMap: tones, ...both, ...offset }),
-    dark: new THREE.MeshBasicMaterial(both),
-    line: new THREE.LineBasicMaterial(),
-    hull: new THREE.MeshBasicMaterial({ side: THREE.BackSide }),
-    gold: new THREE.MeshBasicMaterial(both),
-    lens: new THREE.MeshBasicMaterial(both),
-    lamp: new THREE.MeshBasicMaterial(both),
-  };
-  // Only the car's body is lit. The light stays put while the car turns.
-  const sun = new THREE.DirectionalLight(0xffffff, Math.PI * 0.5);
-  sun.position.set(8, 14, 10);
-  scene.add(sun, new THREE.AmbientLight(0xffffff, Math.PI * 0.55));
 
   // The car is built 100 units long. Scale it so the engine, which is drawn at its own size, fits the engine bay.
   const CAR_SCALE = 0.273;
@@ -91,10 +74,10 @@ export function createEngineScene(
   const engine = new THREE.Group();
   world.add(engine);
 
-  const car = createCar(carMat);
-  car.scale.setScalar(CAR_SCALE);
-  car.position.set(...ENGINE_BAY).multiplyScalar(-CAR_SCALE);
-  world.add(car);
+  const car = createCar();
+  car.group.scale.setScalar(CAR_SCALE);
+  car.group.position.set(...ENGINE_BAY).multiplyScalar(-CAR_SCALE);
+  world.add(car.group);
 
   function part(
     geometry: THREE.BufferGeometry,
@@ -238,13 +221,7 @@ export function createEngineScene(
     mat.soft.color = ink;
     mat.hull.color = ink;
     mat.gold.color = token('--gold');
-    carMat.body.color = token('--body-blue');
-    carMat.dark.color = token('--body-dark');
-    carMat.line.color = token('--body-line');
-    carMat.hull.color = token('--body-line');
-    carMat.gold.color = token('--wheel-gold');
-    carMat.lens.color = token('--paper');
-    carMat.lamp.color = token('--fire');
+    car.applyTheme(token);
     mat.fire.color = token('--fire');
     for (const f of flashes) f.material.color = token('--fire');
   }
@@ -256,7 +233,7 @@ export function createEngineScene(
   let clearAbove = 0.56;
   const pointer = { x: 0, y: 0 };
   const first = CAMERA_KEYS[0]!;
-  const cam = { position: v(...first.position), target: v(...first.target) };
+  const cam = { position: v(...first.position), target: v(...first.target), fov: first.fov ?? DEFAULT_FOV };
   const want = { position: v(0, 0, 0), target: v(0, 0, 0) };
   const scratch = v(0, 0, 0);
 
@@ -304,6 +281,12 @@ export function createEngineScene(
     const ease = reducedMotion ? 1 : 1 - Math.exp(-dt * 4.5);
     cam.position.lerp(want.position, ease);
     cam.target.lerp(want.target, ease);
+    const wantFov = (a.fov ?? DEFAULT_FOV) + ((b.fov ?? DEFAULT_FOV) - (a.fov ?? DEFAULT_FOV)) * t;
+    cam.fov += (wantFov - cam.fov) * ease;
+    if (Math.abs(camera.fov - cam.fov) > 1e-4) {
+      camera.fov = cam.fov;
+      camera.updateProjectionMatrix();
+    }
     camera.position.copy(cam.position);
     if (!reducedMotion) {
       camera.position.x += pointer.x * 0.5;
@@ -312,11 +295,11 @@ export function createEngineScene(
     camera.lookAt(cam.target);
 
     // The whole car turns slowly on the opening sheet, and comes back square as you scroll on.
-    car.visible = sheet < ENGINE_FIRST_SHEET - 0.5;
+    car.group.visible = sheet < ENGINE_FIRST_SHEET - 0.5;
     if (!reducedMotion && sheet < 0.5) turn = (turn + dt * 0.16) % (Math.PI * 2);
     const unwound = turn > Math.PI ? turn - Math.PI * 2 : turn;
     rig.rotation.y = heldTurn ?? unwound * (1 - smoothstep(Math.min(1, sheet)));
-    engine.visible = !car.visible;
+    engine.visible = !car.group.visible;
     const showLabels = sheet > ENGINE_FIRST_SHEET - 0.3;
 
     // A slow sway on the engine's opening sheet only
@@ -363,5 +346,5 @@ export function createEngineScene(
   applyTheme();
   resize();
 
-  return { render, setHeaders, resize, applyTheme, firing, holdTurn: (angle) => void (heldTurn = angle) };
+  return { render, setHeaders, resize, applyTheme, firing, holdTurn: (angle) => void (heldTurn = angle), openBonnet: car.setBonnet };
 }
