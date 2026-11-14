@@ -10,8 +10,8 @@ import {
   type EngineState,
   type HeaderMode,
 } from '../engine/model';
-import { CAR_CENTRE, ENGINE_BAY } from '../car/model';
-import { CAMERA_KEYS, DEFAULT_FOV, ENGINE_FIRST_SHEET, NARROW_WIDTH, cameraDistanceScale, narrowCentre, smoothstep } from './camera';
+import { CAR_CENTRE, ENGINE_BAY, WHEELS } from '../car/model';
+import { ENGINE_FIRST_SHEET, LAST_SHEET, NARROW_WIDTH, cameraAt, cameraDistanceScale, diveDepth, narrowCentre, smoothstep } from './camera';
 import { createCar } from './carScene';
 
 export interface EngineScene {
@@ -45,7 +45,7 @@ export function createEngineScene(
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.5, 400);
+  const camera = new THREE.PerspectiveCamera(cameraAt(0).fov, 1, 0.5, 400);
 
   // Blueprint look: paper-coloured faces, ink edges. No lighting needed.
   const offset = { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 };
@@ -232,8 +232,8 @@ export function createEngineScene(
   let narrow = false;
   let clearAbove = 0.56;
   const pointer = { x: 0, y: 0 };
-  const first = CAMERA_KEYS[0]!;
-  const cam = { position: v(...first.position), target: v(...first.target), fov: first.fov ?? DEFAULT_FOV };
+  const first = cameraAt(0);
+  const cam = { position: v(...first.position), target: v(...first.target), fov: first.fov };
   const want = { position: v(0, 0, 0), target: v(0, 0, 0) };
   const scratch = v(0, 0, 0);
 
@@ -266,23 +266,26 @@ export function createEngineScene(
   let sway = 0;
   let turn = 0;
   let heldTurn: number | null = null;
+  /** Seconds since the visitor arrived on the last sheet, where the car turns away and drives off. */
+  let leaving = 0;
+  /** How far the bonnet lifts, the angle the car turns to before it leaves, and how it gathers speed. */
+  const BONNET_OPEN = 0.95;
+  const AWAY_ANGLE = 2.4;
+  const TURN_TIME = 1.4;
+  const PULL_AWAY = 9;
+  const range = (x: number, from: number, to: number) => smoothstep(Math.min(1, Math.max(0, (x - from) / (to - from))));
 
   function render(dt: number, sheet: number): void {
-    // Camera: blend between the two nearest sheets
-    const last = CAMERA_KEYS.length - 1;
-    const i = Math.min(last, Math.floor(sheet));
-    const a = CAMERA_KEYS[i]!;
-    const b = CAMERA_KEYS[Math.min(last, i + 1)]!;
-    const t = smoothstep(Math.min(1, Math.max(0, sheet - i)));
-    want.position.set(...a.position).lerp(scratch.set(...b.position), t);
-    want.target.set(...a.target).lerp(scratch.set(...b.target), t);
+    // Camera: blend between the two nearest keys
+    const view = cameraAt(sheet);
+    want.position.set(...view.position);
+    want.target.set(...view.target);
     want.position.sub(want.target).multiplyScalar(cameraDistanceScale(camera.aspect, narrow, clearAbove)).add(want.target);
 
     const ease = reducedMotion ? 1 : 1 - Math.exp(-dt * 4.5);
     cam.position.lerp(want.position, ease);
     cam.target.lerp(want.target, ease);
-    const wantFov = (a.fov ?? DEFAULT_FOV) + ((b.fov ?? DEFAULT_FOV) - (a.fov ?? DEFAULT_FOV)) * t;
-    cam.fov += (wantFov - cam.fov) * ease;
+    cam.fov += (view.fov - cam.fov) * ease;
     if (Math.abs(camera.fov - cam.fov) > 1e-4) {
       camera.fov = cam.fov;
       camera.updateProjectionMatrix();
@@ -294,13 +297,27 @@ export function createEngineScene(
     }
     camera.lookAt(cam.target);
 
-    // The whole car turns slowly on the opening sheet, and comes back square as you scroll on.
-    car.group.visible = sheet < ENGINE_FIRST_SHEET - 0.5;
+    // Going in: the bonnet lifts, then the body fades as the camera passes through it. Coming out is the same in reverse.
+    const depth = diveDepth(sheet);
+    car.setBonnet(BONNET_OPEN * range(depth, 0.2, 0.5));
+    car.setOpacity(1 - range(depth, 0.7, 0.94));
+    engine.visible = depth > 0.18;
+    const showLabels = depth > 0.9;
+
+    // The whole car turns slowly on the opening sheet, and comes round to face the camera as you scroll on.
     if (!reducedMotion && sheet < 0.5) turn = (turn + dt * 0.16) % (Math.PI * 2);
     const unwound = turn > Math.PI ? turn - Math.PI * 2 : turn;
-    rig.rotation.y = heldTurn ?? unwound * (1 - smoothstep(Math.min(1, sheet)));
-    engine.visible = !car.group.visible;
-    const showLabels = sheet > ENGINE_FIRST_SHEET - 0.3;
+    // On the last sheet it turns away and drives off. With reduced motion it turns and stays parked.
+    const onLast = sheet > LAST_SHEET - 0.03;
+    if (reducedMotion) leaving = onLast ? TURN_TIME : 0;
+    else if (onLast) leaving += dt;
+    else if (sheet < LAST_SHEET - 0.1) leaving = 0;
+    const driving = Math.max(0, leaving - TURN_TIME * 0.7);
+    const travelled = Math.min(90, 0.5 * PULL_AWAY * driving * driving);
+    const heading = sheet < ENGINE_FIRST_SHEET ? unwound * (1 - range(sheet, 0, 0.4)) : AWAY_ANGLE * range(leaving, 0, TURN_TIME);
+    rig.rotation.y = heldTurn ?? heading;
+    rig.position.set(carCentre.x + Math.sin(rig.rotation.y) * travelled, carCentre.y, carCentre.z + Math.cos(rig.rotation.y) * travelled);
+    car.setRoll(travelled / (WHEELS.radius * CAR_SCALE));
 
     // A slow sway on the engine's opening sheet only
     const intoEngine = sheet - ENGINE_FIRST_SHEET;

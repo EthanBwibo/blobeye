@@ -23,6 +23,10 @@ export interface Car {
   group: THREE.Group;
   /** Lift the bonnet by this angle in radians. 0 shuts it. */
   setBonnet(angle: number): void;
+  /** Fade the whole car: 1 is solid, 0 is gone. */
+  setOpacity(opacity: number): void;
+  /** Turn the wheels by this angle in radians, as if the car had rolled forward. */
+  setRoll(angle: number): void;
   /** Re-read the colours. `token` turns a CSS custom property name into a colour. */
   applyTheme(token: (name: string) => THREE.Color): void;
 }
@@ -51,6 +55,7 @@ function paintMaterial(): THREE.ShaderMaterial {
       mid: { value: new THREE.Color() },
       shade: { value: new THREE.Color() },
       low: { value: LOW_BODY },
+      opacity: { value: 1 },
     },
     vertexShader: `
       varying vec3 vNormal;
@@ -65,12 +70,13 @@ function paintMaterial(): THREE.ShaderMaterial {
       uniform vec3 mid;
       uniform vec3 shade;
       uniform float low;
+      uniform float opacity;
       varying vec3 vNormal;
       varying float vHeight;
       void main() {
         float up = normalize(vNormal).y * (gl_FrontFacing ? 1.0 : -1.0);
         vec3 tone = up > 0.6 ? light : (up < -0.35 || vHeight < low ? shade : mid);
-        gl_FragColor = vec4(tone, 1.0);
+        gl_FragColor = vec4(tone, opacity);
         #include <colorspace_fragment>
       }`,
     side: THREE.DoubleSide,
@@ -84,7 +90,7 @@ function paintMaterial(): THREE.ShaderMaterial {
 function shadowMaterial(): THREE.ShaderMaterial {
   const tyres = [WHEELS.frontZ, WHEELS.rearZ].flatMap((z) => SIDES.map((s) => `vec2(${(s * WHEELS.track).toFixed(2)}, ${z.toFixed(2)})`));
   return new THREE.ShaderMaterial({
-    uniforms: { color: { value: new THREE.Color() } },
+    uniforms: { color: { value: new THREE.Color() }, opacity: { value: 1 } },
     vertexShader: `
       varying vec2 vPlace;
       void main() {
@@ -93,6 +99,7 @@ function shadowMaterial(): THREE.ShaderMaterial {
       }`,
     fragmentShader: `
       uniform vec3 color;
+      uniform float opacity;
       varying vec2 vPlace;
       float roundBox(vec2 p, vec2 size, float r) {
         vec2 d = abs(p) - size + r;
@@ -105,7 +112,7 @@ function shadowMaterial(): THREE.ShaderMaterial {
       void main() {
         float body = 0.34 * (1.0 - smoothstep(-8.0, 9.0, roundBox(vPlace, vec2(18.5, 48.5), 9.0)));
         float tyres = ${tyres.map((t) => `tyre(${t})`).join(' + ')};
-        gl_FragColor = vec4(color, min(0.8, body + 0.5 * tyres));
+        gl_FragColor = vec4(color, opacity * min(0.8, body + 0.5 * tyres));
         #include <colorspace_fragment>
       }`,
     transparent: true,
@@ -283,6 +290,8 @@ export function createCar(): Car {
 
   const car = new THREE.Group();
   const bonnetHinge = new THREE.Group();
+  /** The turning part of each wheel, with the side of the car it is on. */
+  const hubs: [THREE.Group, 1 | -1][] = [];
   const bonnet = new THREE.Group();
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], edges = false, parent: THREE.Object3D = car): THREE.Mesh => {
     const mesh = new THREE.Mesh(geometry, material);
@@ -460,20 +469,23 @@ export function createCar(): Car {
       wheel.position.set(side * WHEELS.track, WHEELS.radius, axleZ);
       wheel.rotation.y = (side * Math.PI) / 2;
       car.add(wheel);
+      const hub = new THREE.Group();
+      wheel.add(hub);
+      hubs.push([hub, side]);
       const R = WHEELS.radius;
       const rim = WHEELS.rimRadius;
       const face = WHEELS.width / 2;
       const turned = (g: THREE.BufferGeometry) => g.rotateX(Math.PI / 2);
       const place = (mesh: THREE.Object3D, z: number) => {
         mesh.position.z = z;
-        wheel.add(mesh);
+        hub.add(mesh);
         return mesh;
       };
       // Tyre, with rounded shoulders
       const tyreProfile = [[rim - 0.1, -face], [R - 0.8, -face], [R, -face + 0.9], [R, face - 0.9], [R - 0.8, face], [rim - 0.1, face]].map(
         ([r, a]) => new THREE.Vector2(r, a),
       );
-      wheel.add(new THREE.Mesh(turned(new THREE.LatheGeometry(tyreProfile, 56)), mat.tyre));
+      hub.add(new THREE.Mesh(turned(new THREE.LatheGeometry(tyreProfile, 56)), mat.tyre));
       // Behind everything: a dark back, then the brake disc
       place(new THREE.Mesh(new THREE.CircleGeometry(rim, 48), mat.dark), face - 2.05);
       place(new THREE.Mesh(new THREE.CircleGeometry(4.1, 48), mat.metal), face - 1.85);
@@ -489,10 +501,10 @@ export function createCar(): Car {
         spoke.rotation.z = (i / 10) * Math.PI * 2;
       }
       place(new THREE.Mesh(turned(new THREE.CylinderGeometry(1.4, 1.4, 0.8, 28)), [mat.goldDeep, mat.gold, mat.gold]), face - 0.85);
-      line(circle(rim + 0.05, face + 0.05), true, wheel);
-      line(circle(rim - 0.6, face + 0.05), true, wheel);
-      line(circle(4.1, face - 1.82, 40), true, wheel);
-      line(circle(0.6, face - 0.43, 20), true, wheel);
+      line(circle(rim + 0.05, face + 0.05), true, hub);
+      line(circle(rim - 0.6, face + 0.05), true, hub);
+      line(circle(4.1, face - 1.82, 40), true, hub);
+      line(circle(0.6, face - 0.43, 20), true, hub);
     }
   }
 
@@ -680,5 +692,21 @@ export function createCar(): Car {
     mat.shadow.uniforms.color!.value = token('--ground-shade');
   };
 
-  return { group: car, setBonnet, applyTheme };
+  let shown = 1;
+  const setOpacity = (opacity: number): void => {
+    if (opacity === shown) return;
+    shown = opacity;
+    car.visible = opacity > 0.001;
+    for (const material of Object.values(mat)) {
+      // Each part still hides what is behind it, so the fading car does not show its own insides.
+      material.transparent = opacity < 1 || material === mat.shadow;
+      if (material instanceof THREE.ShaderMaterial) material.uniforms.opacity!.value = opacity;
+      else material.opacity = opacity;
+    }
+  };
+  const setRoll = (angle: number): void => {
+    for (const [hub, side] of hubs) hub.rotation.z = side * angle;
+  };
+
+  return { group: car, setBonnet, setOpacity, setRoll, applyTheme };
 }
