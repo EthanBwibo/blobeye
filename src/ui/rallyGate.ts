@@ -18,8 +18,8 @@ export interface RallyGate {
 }
 
 /**
- * The way in to the Safari stage, on the last sheet. The game is a separate chunk: it is fetched when
- * the visitor reaches this sheet, and starts when the car has driven off or the button is pressed.
+ * The way in to the Safari stage, on the last sheet. The game is a separate chunk: it is fetched and
+ * built when the visitor reaches this sheet, and cuts in when the car has driven off or the button is pressed.
  *
  * The game is keyboard only, so on phones and tablets the button gives way to a note.
  */
@@ -47,9 +47,11 @@ export function initRallyGate(host: RallyGateHost): RallyGate {
     armed = false;
     button.disabled = true;
     button.textContent = 'Loading the stage';
+    let started = false;
     try {
       const { startRally } = await fetchGame();
       host.onStart();
+      started = true;
       for (const el of behind) el.inert = true;
       startRally({
         engine: host.engine,
@@ -65,6 +67,10 @@ export function initRallyGate(host: RallyGateHost): RallyGate {
       });
     } catch (err) {
       console.warn('The stage could not be loaded:', err);
+      if (started) {
+        for (const el of behind) el.inert = false;
+        host.onExit();
+      }
       game = null;
       busy = false;
       button.disabled = false;
@@ -78,7 +84,8 @@ export function initRallyGate(host: RallyGateHost): RallyGate {
     update(onSheet, clear, carGone) {
       if (clear) armed = true;
       if (!onSheet || busy) return;
-      if (!game) fetchGame().catch(() => (game = null)); // a failed fetch is tried again on the button
+      // Fetch the game and build its world ahead of time, so the cut into it is instant. A failed fetch is tried again on the button.
+      if (!game) fetchGame().then((m) => m.warmRally(), () => (game = null));
       if (armed && carGone) void begin();
     },
   };

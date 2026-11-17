@@ -45,7 +45,7 @@ The rally years told accurately, with every claim sourced.
 
 ## M4 · Safari Rally game
 
-A small top-down time trial on a Naivasha-style gravel stage.
+A small time trial on a Naivasha-style gravel stage, seen from behind the car.
 
 - [ ] Game design note for the Safari Rally time trial · `game` `design`
 - [ ] Car handling on gravel · `game`

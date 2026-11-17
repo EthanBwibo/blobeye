@@ -16,7 +16,7 @@
     {"title": "M1 · Engine chapter", "description": "Make the boxer engine explainer feel finished: sound tuned by ear, smooth scrolling, an intro, phone layout, accessibility."},
     {"title": "M2 · The car", "description": "Put a Blobeye around the engine: hero stop, X-ray drivetrain stop, and the camera dive into the engine bay."},
     {"title": "M3 · Heritage", "description": "The rally years told accurately, with every claim sourced."},
-    {"title": "M4 · Safari Rally game", "description": "A small top-down time trial on a Naivasha-style gravel stage."},
+    {"title": "M4 · Safari Rally game", "description": "A small time trial on a Naivasha-style gravel stage, seen from behind the car."},
     {"title": "M5 · Launch", "description": "Specs stop, deploy, polish, and the portfolio entry."}
   ],
   "issues": [
