@@ -88,9 +88,12 @@ export const PARTS = {
   bonnet: { front: 44.5, rear: 22, edge: 10 },
   scoop: { front: 34.3, topFront: 33.1, topRear: 28.8, rear: 27.1, top: 22.6, halfWidth: 4.5 },
   wing: {
-    front: -41.3, rear: -47.0, top: 29.5, under: 28.6, halfWidth: 13.5, upright: 12.6,
-    /** Each upright is a thin strut, so there is daylight between the wing and the boot. */
-    strut: { baseFront: -43.0, baseRear: -45.4, topFront: -43.8, topRear: -45.9 },
+    /** `top` and `under` are the plank at its ends. It is bowed: `arch` higher in the middle. */
+    front: -41.3, rear: -47.0, top: 31.2, under: 30.3, arch: 0.8, halfWidth: 13.5, upright: 8.2,
+    /** Each upright is a slim strut, so there is daylight between the wing and the boot. */
+    strut: { baseFront: -42.7, baseRear: -45.5, topFront: -43.9, topRear: -45.7, halfThick: 0.2 },
+    /** The plate on each end of the plank: how far it reaches below and above the plank, and how thick it is. */
+    endPlate: { below: 1.7, above: 0.8, thick: 0.3 },
   },
   headlamp: {
     inner: 20, outer: 59, y: 15.1, innerUp: 1.9, outerUp: 2.8, innerDown: 1.9, outerDown: 2.6,
@@ -112,6 +115,13 @@ export const PARTS = {
   handleHeight: [18.5, 19.7],
   mirror: { x: 21.4, y: 22.9, z: 13.2 },
 } as const;
+
+/** How much higher the wing's plank is at `x` across the car than at its ends: a shallow bow, highest in the middle. */
+export function wingArch(x: number): number {
+  const { arch, halfWidth } = PARTS.wing;
+  const t = Math.min(1, Math.abs(x) / halfWidth);
+  return arch * (1 - t * t);
+}
 
 /** Where the centre of the engine sits in the car. */
 export const ENGINE_BAY: Point = [0, 10.8, 33];

@@ -13,6 +13,7 @@ import {
   section,
   sideX,
   surfacePoint,
+  wingArch,
   wrapPoint,
   type Pair,
   type Point,
@@ -298,6 +299,26 @@ function prism(outline: readonly Pair[], x0: number, x1: number): THREE.BufferGe
   return geometry;
 }
 
+/**
+ * A solid with the same outline all the way across, like `prism`, but lifted by `rise(x)` as it goes: a bowed plank.
+ * `xs` are the stations across the car, from one end to the other.
+ */
+function bowed(outline: readonly Pair[], xs: readonly number[], rise: (x: number) => number): THREE.BufferGeometry {
+  const points: THREE.Vector3[] = [];
+  const n = outline.length;
+  const at = (i: number, x: number) => new THREE.Vector3(x, outline[i % n]![1] + rise(x), outline[i % n]![0]);
+  for (let s = 0; s < xs.length - 1; s++) {
+    const [x0, x1] = [xs[s]!, xs[s + 1]!];
+    for (let i = 0; i < n; i++) points.push(at(i, x0), at(i + 1, x0), at(i + 1, x1), at(i, x0), at(i + 1, x1), at(i, x1));
+  }
+  // The two ends
+  const [first, last] = [xs[0]!, xs[xs.length - 1]!];
+  for (let i = 1; i < n - 1; i++) points.push(at(0, first), at(i, first), at(i + 1, first), at(0, last), at(i + 1, last), at(i, last));
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 export function createCar(): Car {
   const flat = () => new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
   const mat = {
@@ -563,18 +584,31 @@ export function createCar(): Car {
   add(sheet([[mouth[0]!, mouth[1]!, mouth[2]!], [mouth[5]!, mouth[4]!, mouth[3]!]]), mat.dark, false, bonnet);
   line(scoopSlice(scoop.front + 0.03, scoop.top - 0.45, scoop.halfWidth), false, bonnet);
 
-  // --- Rear wing: a plank held clear of the boot on two thin struts
+  // --- Rear wing: a tall bowed plank with a plate on each end, held clear of the boot on two slim uprights
   const { wing } = PARTS;
   const deckAt = (z: number) => lerpAt(SIDE_TOP, z) - 0.5;
   for (const side of SIDES) {
     const { strut } = wing;
     const upright: Pair[] = [
       [strut.baseFront, deckAt(strut.baseFront)],
-      [strut.topFront, wing.under + 0.2],
-      [strut.topRear, wing.under + 0.2],
+      [strut.topFront, wing.under + wingArch(wing.upright) + 0.2],
+      [strut.topRear, wing.under + wingArch(wing.upright) + 0.2],
       [strut.baseRear, deckAt(strut.baseRear)],
     ];
-    painted(prism(upright, side * wing.upright - 0.28, side * wing.upright + 0.28), true, true);
+    painted(prism(upright, side * wing.upright - strut.halfThick, side * wing.upright + strut.halfThick), true, true);
+    // The end plate: taller than the plank, longer below it than above, with its corners cut
+    const { endPlate } = wing;
+    const [low, high] = [wing.under - endPlate.below, wing.top + endPlate.above];
+    const plate: Pair[] = [
+      [wing.front + 0.9, wing.under],
+      [wing.front + 0.3, high - 0.5],
+      [wing.front - 0.6, high],
+      [wing.rear - 0.9, high],
+      [wing.rear - 1.1, low + 0.9],
+      [wing.rear - 0.3, low],
+      [wing.front - 0.2, low],
+    ];
+    painted(prism(plate, side * wing.halfWidth, side * (wing.halfWidth + endPlate.thick)), true, true);
   }
   const plank: Pair[] = [
     [wing.front + 0.4, wing.under + 0.35],
@@ -585,7 +619,8 @@ export function createCar(): Car {
     [wing.front - 3.4, wing.under],
     [wing.front - 1.2, wing.under],
   ];
-  painted(prism(plank, -wing.halfWidth, wing.halfWidth), true, true);
+  const spans = Array.from({ length: 17 }, (_, i) => mix(-wing.halfWidth, wing.halfWidth, i / 16));
+  painted(bowed(plank, spans, wingArch), true, true);
 
   // --- Door mirrors: a housing held off the door on a stalk
   const { mirror } = PARTS;
