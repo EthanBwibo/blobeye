@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CABIN, DOOR_HALF_WIDTH, RING, RING_SIZE, WHEELS, bodyHalfWidth, flareAt, lerpAt, section, sideX, surfacePoint, topHalfWidth, wrapPoint } from './model';
+import { BELT, CABIN, DOOR_HALF_WIDTH, PARTS, RING, RING_SIZE, SIDE_TOP, WHEELS, bodyHalfWidth, flareAt, lerpAt, section, sideX, surfacePoint, topHalfWidth, wrapPoint } from './model';
 
 describe('lerpAt', () => {
   const line = [[10, 0], [0, 4], [-10, 2]] as const;
@@ -24,6 +24,26 @@ describe('body width', () => {
     expect(topHalfWidth(0)).toBe(CABIN.roofHalfWidth);
     expect(topHalfWidth((CABIN.cowl + CABIN.roofFront) / 2)).toBeGreaterThan(CABIN.roofHalfWidth);
     expect(topHalfWidth(CABIN.deck - 2)).toBeGreaterThan(CABIN.roofHalfWidth);
+  });
+});
+
+describe('glasshouse', () => {
+  const { glass } = PARTS;
+  it('rises from the cowl to the roof steeply, and falls to the boot steeply', () => {
+    // The rise or fall across the middle of each screen, per unit along the car (the first trace was about 0.5)
+    const windscreen = (lerpAt(SIDE_TOP, 10) - lerpAt(SIDE_TOP, 18)) / 8;
+    const rearScreen = (lerpAt(SIDE_TOP, -22) - lerpAt(SIDE_TOP, -30)) / 8;
+    expect(windscreen).toBeGreaterThan(0.6);
+    expect(rearScreen).toBeGreaterThan(0.6);
+  });
+  it('has tall side windows, over a third of the car height from belt to roof', () => {
+    expect(lerpAt(SIDE_TOP, glass.pillar) - lerpAt(BELT, glass.pillar)).toBeGreaterThan(11);
+  });
+  it('has thin pillars', () => {
+    expect(glass.pillarHalf * 2).toBeLessThan(1);
+    expect(CABIN.cowl - glass.frontLow).toBeLessThan(3.5);
+    expect(glass.frontTop - CABIN.roofFront).toBeLessThan(1);
+    expect(glass.rearTop - CABIN.roofRear).toBeLessThan(1);
   });
 });
 

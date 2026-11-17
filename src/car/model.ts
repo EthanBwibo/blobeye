@@ -17,9 +17,9 @@ export type Point = readonly [x: number, y: number, z: number];
 export const SIDE_TOP: readonly Pair[] = [
   [49.9, 12.1], [49.7, 13.2], [48.8, 14.4], [48.4, 15.7], [48.2, 16.3], [46.9, 17.1], [45.2, 18.0], // nose and bumper
   [42.9, 18.8], [39.5, 19.7], [36.0, 20.3], [32.6, 20.8], [28.8, 21.3], [25.0, 21.8], [21.1, 22.6], // bonnet
-  [15.6, 25.7], [9.6, 29.2], [4.5, 31.8], // windscreen
-  [1.1, 32.2], [-5.7, 32.6], [-13.4, 32.6], [-19.3, 32.2], // roof
-  [-22.7, 31.2], [-26.1, 29.9], [-29.6, 28.0], [-33.0, 26.1], [-35.5, 24.5], // rear screen
+  [16.6, 25.9], [11.9, 29.3], [7.8, 31.7], // windscreen: steeper than the first trace, so the cabin stands up
+  [4.8, 32.3], [-1.0, 32.6], [-13.4, 32.6], [-18.0, 32.3], // roof
+  [-20.6, 31.4], [-23.8, 29.3], [-27.2, 27.0], [-30.8, 25.1], [-34.2, 24.1], // rear screen: falls away sooner
   [-37.2, 23.8], [-42.1, 23.4], [-46.8, 23.0], // boot
   [-47.2, 20.3], [-47.7, 17.1], [-48.1, 15.1], [-49.1, 14.6], [-50.0, 13.8], // tail and bumper
 ];
@@ -33,7 +33,7 @@ export const SIDE_BOTTOM: readonly Pair[] = [
 
 /** The line under the side windows, carried on to the nose and tail, as [z, height]. Traced from A, side view. */
 export const BELT: readonly Pair[] = [
-  [42.0, 19.0], [20.7, 20.7], [12.2, 21.1], [-7.0, 21.6], [-27.2, 22.2], [-36.8, 23.7], [-45.3, 23.2],
+  [42.0, 19.0], [20.7, 20.7], [12.2, 20.8], [-7.0, 21.2], [-27.2, 22.2], [-36.8, 23.7], [-45.3, 23.2],
 ];
 
 /**
@@ -60,8 +60,8 @@ export const CABIN = {
   beltInset: 0.95,
   /** Where the windscreen meets the bonnet, the roof begins, the roof ends, and the rear screen meets the boot. */
   cowl: 21.1,
-  roofFront: 4.5,
-  roofRear: -19.3,
+  roofFront: 6.0,
+  roofRear: -18.6,
   deck: -37.2,
 } as const;
 
@@ -108,7 +108,8 @@ export const PARTS = {
   tailLamp: { inner: 27, outer: 60, y: 18.0, halfHeight: 2.6, lamps: [[50.5, 18.0, 1.5], [36.5, 18.0, 1.5]] },
   plate: { half: 15, top: 19.4, bottom: 16.3 },
   tailpipe: { x: 7.9, y: 6.9, radius: 1.15 },
-  glass: { frontLow: 16.9, frontTop: 3.7, rearTop: -18.7, rearLow: -28.7, pillar: -7.7 },
+  /** The side windows: where their front and rear edges meet the belt and the roof, and the middle of the B pillar. */
+  glass: { frontLow: 18.0, frontTop: 5.2, rearTop: -18.0, rearLow: -29.8, pillar: -7.7, pillarHalf: 0.35 },
   doors: [18.6, -7.7, -22.9],
   /** Door handles, each from z to z, and the height they span. */
   handles: [[-3.0, -6.4], [-18.2, -21.6]],
