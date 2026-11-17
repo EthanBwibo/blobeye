@@ -91,11 +91,11 @@ describe('the best run as a ghost', () => {
   it('is kept on the device, small, and read back for its own stage only', () => {
     const recorder = newRecorder();
     for (let t = 0; t <= 64.0001; t += DT) record(recorder, t, { x: t * 30.123456, y: Math.sin(t) * 100, heading: t * 0.1234567, height: 0.001 });
-    const ghost = finishGhost(recorder, 'soysambu', 64)!;
+    const ghost = finishGhost(recorder, 'roysambu', 64)!;
     const text = ghostText(ghost);
     // About forty kilobytes for a minute: comfortably inside what a browser lets a page keep.
     expect(text.length).toBeLessThan(40_000);
-    const back = parseGhost(text, 'soysambu')!;
+    const back = parseGhost(text, 'roysambu')!;
     expect(back.time).toBe(64);
     expect(momentsIn(back)).toBe(momentsIn(ghost));
     expect(ghostAt(back, 30)!.x).toBeCloseTo(ghostAt(ghost, 30)!.x, 1);

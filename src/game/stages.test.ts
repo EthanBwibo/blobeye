@@ -6,7 +6,7 @@ import { corners, paceNotes, rockFields } from './notes';
 import { growScenery } from './scenery';
 import { MEDALS, medalFor } from './splits';
 import { newTrial, poseAt, stepTrial, type Stage, type Trial } from './stage';
-import { DEFAULT_STAGE, STAGES, buildStageOf, stageById } from './stages';
+import { DEFAULT_STAGE, RENAMED, STAGES, buildStageOf, moveRenamed, stageById } from './stages';
 
 const DT = 1 / 120;
 
@@ -26,29 +26,57 @@ const byId = Object.fromEntries(STAGES.map((def) => [def.id, { def, stage: build
 
 describe('the stages', () => {
   it('are three, each with a name the shared table takes, and Naivasha first', () => {
-    expect(STAGES.map((s) => s.name)).toEqual(['Naivasha', "Hell's Gate", 'Soysambu']);
+    expect(STAGES.map((s) => s.name)).toEqual(['Naivasha', "Hell's Gate", 'Roysambu']);
     expect(new Set(STAGES.map((s) => s.id)).size).toBe(STAGES.length);
     for (const { id } of STAGES) expect(id).toMatch(/^[a-z-]{1,24}$/);
     // Naivasha's times are already on the shared board under this name.
     expect(DEFAULT_STAGE.id).toBe(STAGE_ID);
     expect(DEFAULT_STAGE.hazards).toBe(HAZARDS);
-    expect(stageById('soysambu').name).toBe('Soysambu');
+    expect(stageById('roysambu').name).toBe('Roysambu');
     expect(stageById('nowhere')).toBe(DEFAULT_STAGE);
     expect(stageById(null)).toBe(DEFAULT_STAGE);
   });
 
-  it('are each as the brief has them: Hell\'s Gate narrow, rocky and tight; Soysambu wide, open and quick, with crests and animals', () => {
-    const [naivasha, gate, soysambu] = ['naivasha', 'hells-gate', 'soysambu'].map((id) => byId[id]!);
+  it('still find Roysambu by the name it had, Soysambu, and move what a device kept under it', () => {
+    expect(RENAMED).toEqual({ soysambu: 'roysambu' });
+    expect(stageById('soysambu').id).toBe('roysambu');
+    const kept = new Map<string, string>([
+      ['run.soysambu', '{"time":70,"splits":[20,40,60]}'],
+      ['ghost.soysambu', '{"stage":"soysambu","time":70,"step":0.1,"frames":[]}'],
+      ['top.soysambu', '[{"name":"Ethan","time":70}]'],
+      // Already there under the new name: kept, and the old one dropped.
+      ['top.roysambu', '[{"name":"Newer","time":69}]'],
+      ['picked', 'soysambu'],
+      ['run.naivasha', '{"time":60,"splits":[15,30,45]}'],
+    ]);
+    const store = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v), removeItem: (k: string) => void kept.delete(k) };
+    const keysOf = (id: string) => [`run.${id}`, `ghost.${id}`, `top.${id}`];
+    moveRenamed(store, keysOf, 'picked');
+    expect(Object.fromEntries(kept)).toEqual({
+      'run.roysambu': '{"time":70,"splits":[20,40,60]}',
+      'ghost.roysambu': '{"stage":"roysambu","time":70,"step":0.1,"frames":[]}',
+      'top.roysambu': '[{"name":"Newer","time":69}]',
+      picked: 'roysambu',
+      'run.naivasha': '{"time":60,"splits":[15,30,45]}',
+    });
+    // Run again, nothing changes.
+    const before = Object.fromEntries(kept);
+    moveRenamed(store, keysOf, 'picked');
+    expect(Object.fromEntries(kept)).toEqual(before);
+  });
+
+  it('are each as the brief has them: Hell\'s Gate narrow, rocky and tight; Roysambu wide, open and quick, with crests and animals', () => {
+    const [naivasha, gate, roysambu] = ['naivasha', 'hells-gate', 'roysambu'].map((id) => byId[id]!);
     const tight = (stage: Stage) => corners(stage).filter((c) => c.grade <= 2).length;
     expect(gate!.stage.halfWidth).toBeLessThan(naivasha!.stage.halfWidth);
     expect(rockFields(gate!.def.hazards.rocks).length).toBeGreaterThanOrEqual(3);
     expect(gate!.def.bush.rocks).toBeGreaterThan(naivasha!.def.bush.rocks);
     expect(tight(gate!.stage)).toBeGreaterThan(tight(naivasha!.stage) + 3);
-    expect(soysambu!.stage.halfWidth).toBeGreaterThan(naivasha!.stage.halfWidth);
-    expect(soysambu!.def.hazards.crests.length).toBeGreaterThanOrEqual(3);
-    expect(soysambu!.def.hazards.zebra.count).toBeGreaterThan(0);
-    expect(corners(soysambu!.stage).length).toBeLessThan(corners(naivasha!.stage).length);
-    expect(tight(soysambu!.stage)).toBe(0);
+    expect(roysambu!.stage.halfWidth).toBeGreaterThan(naivasha!.stage.halfWidth);
+    expect(roysambu!.def.hazards.crests.length).toBeGreaterThanOrEqual(3);
+    expect(roysambu!.def.hazards.zebra.count).toBeGreaterThan(0);
+    expect(corners(roysambu!.stage).length).toBeLessThan(corners(naivasha!.stage).length);
+    expect(tight(roysambu!.stage)).toBe(0);
   });
 });
 

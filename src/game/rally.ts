@@ -18,7 +18,7 @@ import { beatsGhost, finishGhost, ghostAt, ghostText, newRecorder, packReplay, p
 import { carSpeeds, easeSteer, engineRpm, gearFor, type DriveInput } from './handling';
 import { groundAt } from './hazards';
 import { kmh, needleAngle, revMeterSvg, DIAL } from './instruments';
-import { openBoard, STAGE_ID, type Board } from './leaderboard';
+import { boardKey, openBoard, STAGE_ID, type Board } from './leaderboard';
 import { SKIES, lampStrength, pickLight, type Light } from './light';
 import { minimapSvg } from './minimap';
 import { paceNotes, shownAt, type Note } from './notes';
@@ -26,7 +26,7 @@ import { caption, cautionSvg, signSvg } from './paceIcons';
 import { scatter } from './scenery';
 import { MEDALS, formatGap, keepBest, medalFor, parseBestRun, sectorGap, sectorTimes, verdict, type BestRun } from './splits';
 import { canReset, creaturesAt, formatTime, locate, newTrial, resetToRoad, stepTrial, type Stage, type Trial } from './stage';
-import { STAGES, buildStageOf, stageById, type StageDef } from './stages';
+import { STAGES, buildStageOf, moveRenamed, stageById, type StageDef } from './stages';
 import { buzz, buzzFor, createTouchPads, tiltSteer, type TouchPads } from './touch';
 import { createVoice } from './voice';
 import { UNIT, createWorld, type Puff, type World } from './world';
@@ -62,6 +62,18 @@ const KEYS = {
   tilt: 'blobeye.rally.tilt',
   voice: 'blobeye.rally.codriver',
 } as const;
+/** Once a visit, before anything is read: carry what a renamed stage kept on this device over to its new name. */
+let moved = false;
+const moveRenamedStages = (): void => {
+  if (moved) return;
+  moved = true;
+  try {
+    moveRenamed(window.localStorage, (id) => [KEYS.run(id), KEYS.ghost(id), boardKey(id)], KEYS.stage);
+  } catch {
+    /* storage is switched off: there is nothing to move */
+  }
+};
+
 /** How long a sector time stays up in the middle of the screen, in seconds. */
 const SECTOR_FLASH = 2.6;
 /** The ghost stays on the line this long after it finishes, then goes. */
@@ -116,6 +128,7 @@ function build(def: StageDef, lite: boolean): Built {
  * instant. Safe to call more than once. If it cannot be built, `startRally` will say so.
  */
 export function warmRally(): void {
+  moveRenamedStages();
   if (built || failed) return;
   const run = (): void => {
     try {
@@ -147,6 +160,7 @@ interface Tilt {
 }
 
 export function startRally(host: RallyHost): Rally {
+  moveRenamedStages();
   const touch = touchScreen();
   let current = build(stageById(read(KEYS.stage)), touch);
   let { stage, world, notes } = current;
