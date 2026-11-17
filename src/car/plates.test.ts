@@ -2,6 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { PARTS } from './model';
 import { PLATES, PLATE_WORDS, pickPlate } from './plates';
 
+describe('headlamps', () => {
+  const { headlamp, grille } = PARTS;
+  it('keep both lamps and the reflector inside the lens, clear of each other and of the grille', () => {
+    const PER_DEGREE = 0.36;
+    const [outer, inner] = headlamp.lamps;
+    // The lamps' dark surrounds are a fifth bigger than the lamps.
+    expect((outer![0] - inner![0]) * PER_DEGREE).toBeGreaterThan((outer![2] + inner![2]) * 1.2);
+    expect(inner![0] - (inner![2] * 1.2) / PER_DEGREE).toBeGreaterThan(headlamp.inner);
+    expect(headlamp.reflector.angle - headlamp.reflector.halfWidth / PER_DEGREE).toBeGreaterThan(outer![0] + (outer![2] * 1.2) / PER_DEGREE);
+    expect(headlamp.reflector.angle + headlamp.reflector.halfWidth / PER_DEGREE).toBeLessThan(headlamp.outer);
+    expect(headlamp.inner).toBeGreaterThan(grille.topHalf);
+    for (const [, y, r] of headlamp.lamps) {
+      expect(y + r).toBeLessThan(headlamp.y + headlamp.outerUp);
+      expect(y - r).toBeGreaterThan(headlamp.y - headlamp.outerDown);
+    }
+  });
+});
+
 describe('number plates', () => {
   it('carry one of the ten words, each as likely as the others', () => {
     expect(PLATE_WORDS).toHaveLength(10);
