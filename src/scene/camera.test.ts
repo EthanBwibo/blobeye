@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAMERA_KEYS, DRIVE_OFF_SHEET, HERITAGE_SHEET, LAST_SHEET, cameraAt, cameraDistanceScale, diveDepth, narrowCentre, xrayAmount } from './camera';
+import { CAMERA_KEYS, DIVE_OVER_BAY, DIVE_RISEN, DRIVE_OFF_SHEET, ENGINE_FIRST_SHEET, HERITAGE_SHEET, LAST_SHEET, SPECS_SHEET, cameraAt, cameraDistanceScale, diveDepth, narrowCentre, xrayAmount } from './camera';
 
 describe('narrowCentre', () => {
   it('puts the engine just below the middle of the space above the notes', () => {
@@ -17,9 +17,9 @@ describe('cameraAt', () => {
   it('sits exactly on a key at its own scroll position', () => {
     for (const key of CAMERA_KEYS) expect(cameraAt(key.at).position).toEqual(key.position);
   });
-  it('shows the same view of the whole car at the start, the drive-off and the end', () => {
+  it('shows the same view of the whole car at the start, the specs table and the drive-off', () => {
+    expect(cameraAt(SPECS_SHEET)).toEqual(cameraAt(0));
     expect(cameraAt(DRIVE_OFF_SHEET)).toEqual(cameraAt(0));
-    expect(cameraAt(LAST_SHEET)).toEqual(cameraAt(0));
     expect(cameraAt(LAST_SHEET + 3)).toEqual(cameraAt(0));
   });
   it('has a key on every sheet, in scroll order', () => {
@@ -35,6 +35,50 @@ describe('cameraAt', () => {
     const y = cameraAt(1.5).position[1];
     expect(y).toBeGreaterThan(3.3);
     expect(y).toBeLessThan(10.5);
+  });
+});
+
+describe('sheet order', () => {
+  it('runs timeline, specs, then the Safari stage, with nothing after the game', () => {
+    expect(SPECS_SHEET).toBe(HERITAGE_SHEET + 1);
+    expect(DRIVE_OFF_SHEET).toBe(SPECS_SHEET + 1);
+    expect(LAST_SHEET).toBe(DRIVE_OFF_SHEET);
+    expect(Math.max(...CAMERA_KEYS.map((k) => k.at))).toBe(DRIVE_OFF_SHEET);
+  });
+});
+
+describe('the dive into the engine', () => {
+  // In the engine's units: the roof is about 6 above the engine, and the nose about 4.6 ahead of it.
+  const ROOF = 5.95;
+  const NOSE = 4.6;
+  const height = (sheet: number) => cameraAt(sheet).position[1];
+
+  it('rises first, while still well out in front of the car', () => {
+    expect(height(DIVE_RISEN / 2)).toBeGreaterThan(height(0));
+    expect(height(DIVE_RISEN)).toBeGreaterThan(ROOF);
+    expect(cameraAt(DIVE_RISEN).position[2]).toBeGreaterThan(NOSE * 3);
+    for (let s = 0; s < DIVE_RISEN - 0.02; s += 0.02) expect(height(s + 0.02)).toBeGreaterThanOrEqual(height(s));
+  });
+  it('passes over the front of the car at about roof height, not in through the nose', () => {
+    let crossed = false;
+    for (let s = DIVE_RISEN; s <= DIVE_OVER_BAY; s += 0.005) {
+      const [, y, z] = cameraAt(s).position;
+      expect(y).toBeGreaterThan(ROOF * 0.9);
+      if (Math.abs(z - NOSE) < 0.5) {
+        crossed = true;
+        expect(y).toBeLessThan(ROOF * 1.25);
+      }
+    }
+    expect(crossed).toBe(true);
+  });
+  it('looks down into the bay from above before it descends', () => {
+    const { position, target } = cameraAt(DIVE_OVER_BAY);
+    const drop = position[1] - target[1];
+    const reach = Math.hypot(position[0] - target[0], position[2] - target[2]);
+    expect(drop).toBeGreaterThan(reach);
+    expect(position[2]).toBeLessThan(NOSE);
+    expect(position[1]).toBeGreaterThan(height(ENGINE_FIRST_SHEET));
+    for (let s = DIVE_OVER_BAY; s < ENGINE_FIRST_SHEET - 0.02; s += 0.02) expect(height(s + 0.02)).toBeLessThanOrEqual(height(s) + 1e-9);
   });
 });
 
@@ -84,6 +128,7 @@ describe('diveDepth', () => {
     expect(diveDepth(1)).toBe(1);
     expect(diveDepth(3.2)).toBe(1);
     expect(diveDepth(HERITAGE_SHEET)).toBe(0);
+    expect(diveDepth(SPECS_SHEET)).toBe(0);
     expect(diveDepth(DRIVE_OFF_SHEET)).toBe(0);
     expect(diveDepth(LAST_SHEET)).toBe(0);
   });

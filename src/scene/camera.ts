@@ -22,22 +22,35 @@ export const ENGINE_FIRST_SHEET = 1;
 export const ENGINE_LAST_SHEET = 5;
 /** The rally timeline, once the camera has pulled back out of the engine. Wide screens only. */
 export const HERITAGE_SHEET = 6;
-/** The Safari stage: the car turns away and drives off here. */
-export const DRIVE_OFF_SHEET = 7;
-/** The specs table, after the game. Wide screens only. */
-export const LAST_SHEET = 8;
+/** The specs table. Wide screens only. */
+export const SPECS_SHEET = 7;
+/** The Safari stage: the car turns away and drives off here, and the game cuts in. */
+export const DRIVE_OFF_SHEET = 8;
+/** The Safari stage is the last sheet: there is nothing to scroll to after the game. */
+export const LAST_SHEET = DRIVE_OFF_SHEET;
+/** On the way in, the scroll positions where the camera has risen, and where it looks down into the engine bay. */
+export const DIVE_RISEN = 0.3;
+export const DIVE_OVER_BAY = 0.62;
 
 type View = Pick<CameraKey, 'position' | 'target' | 'fov'>;
 /** The whole car, front three-quarter, on a long lens at door-handle height. */
 const WHOLE_CAR: View = { position: [40.3, 2.5, 50.8], target: [0, 1.0, -9.0], fov: 20 };
 /** The same view tipped down, which lifts the car to the top of the sheet and leaves the bottom for the timeline. */
 const ABOVE_TIMELINE: View = { ...WHOLE_CAR, target: [0, -4.0, -9.0] };
-/** Standing in front of the car looking down into the engine bay. */
+/** Risen well above the car, out in front of it, before moving in. */
+const RISEN: View = { position: [12, 10.5, 25], target: [0, 1.2, -3], fov: 24 };
+/**
+ * Over the front of the engine bay at about roof height, looking down into it. The path here from `RISEN`
+ * crosses the nose at about the same height, and the open bonnet stands behind the view, out of the picture.
+ */
+const OVER_BAY: View = { position: [0.7, 5.6, 3.25], target: [0, 0.2, 0.2], fov: 42 };
+/** Standing in front of the car looking down into the engine bay. Used on the way back out. */
 const OVER_BONNET: View = { position: [3.5, 10.5, 24], target: [0, 1.2, 0.5], fov: 28 };
 
 export const CAMERA_KEYS: readonly CameraKey[] = [
   { at: 0, ...WHOLE_CAR },
-  { at: 0.55, ...OVER_BONNET }, // on the way in
+  { at: DIVE_RISEN, ...RISEN }, // on the way in: up first
+  { at: DIVE_OVER_BAY, ...OVER_BAY }, // then over the nose, looking down into the bay, before going down to the engine
   { at: 1, position: [5.6, 3.3, 7.0], target: [0, -0.2, 0] }, // engine, three-quarter
   { at: 2, position: [0, 10.5, 1.6], target: [0, 0, 0] }, // plan view
   { at: 3, position: [0, 5.2, 8.4], target: [0, -0.1, 0] }, // front elevation
@@ -45,8 +58,8 @@ export const CAMERA_KEYS: readonly CameraKey[] = [
   { at: 5, position: [-6.2, 2.6, 6.4], target: [0, -0.4, 0] }, // rear three-quarter
   { at: 5.45, ...OVER_BONNET }, // on the way out
   { at: HERITAGE_SHEET, ...ABOVE_TIMELINE }, // pulled back, with the rally timeline below
+  { at: SPECS_SHEET, ...WHOLE_CAR }, // the specs table
   { at: DRIVE_OFF_SHEET, ...WHOLE_CAR }, // the car drives off into the Safari stage
-  { at: LAST_SHEET, ...WHOLE_CAR }, // the specs table
 ];
 
 /** The X-ray sheet: from the car's side and above, so the drivetrain reads as one line from nose to tail. */

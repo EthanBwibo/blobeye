@@ -374,17 +374,8 @@ export function createCar(): Car {
   const inset = (p: THREE.Vector3) => new THREE.Vector3(p.x * 0.985, p.y - 0.15, p.z);
   add(sheet(hoodRows.map((r) => [inset(r[0]!), bayFloor(r[0]!), bayFloor(r[r.length - 1]!), inset(r[r.length - 1]!)])), mat.dark);
   for (const row of [hoodRows[0]!, hoodRows[hoodRows.length - 1]!]) add(sheet([row.map(inset), row.map(bayFloor)]), mat.dark);
-  // A stay that props the bonnet when it is open
-  const stayFoot = new THREE.Vector3(-13.5, lerpAt(SIDE_TOP, 42) - 1.2, 42);
-  const stayHead = new THREE.Vector3(-13, lerpAt(SIDE_TOP, 37) - 0.4, 37);
-  const stay = new THREE.Line(new THREE.BufferGeometry().setFromPoints([stayFoot, stayHead]), mat.line);
-  stay.visible = false;
-  car.add(stay);
   const setBonnet = (angle: number): void => {
     bonnetHinge.rotation.x = -angle;
-    stay.visible = angle > 0.05;
-    const head = stayHead.clone().sub(hinge).applyAxisAngle(new THREE.Vector3(1, 0, 0), -angle).add(hinge);
-    stay.geometry.setFromPoints([stayFoot, head]);
   };
 
   // --- Glass
