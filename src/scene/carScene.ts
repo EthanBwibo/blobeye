@@ -18,6 +18,7 @@ import {
   surfacePoint,
   rimProfile,
   tyreProfile,
+  mirrorFoot,
   wingArch,
   wrapPoint,
   type Pair,
@@ -707,13 +708,21 @@ export function createCar(): Car {
   const spans = Array.from({ length: 17 }, (_, i) => mix(-wing.halfWidth, wing.halfWidth, i / 16));
   painted(bowed(plank, spans, wingArch), true, true);
 
-  // --- Door mirrors: a housing held off the door on a stalk
+  // --- Door mirrors: a housing held well off the front door on a stalk, from a dark foot on the door skin
   const { mirror } = PARTS;
+  const [footX, footY, footZ] = mirrorFoot();
   for (const side of SIDES) {
-    painted(new THREE.SphereGeometry(1, 20, 12).scale(2.0, 1.55, 1.15).translate(side * mirror.x, mirror.y, mirror.z), true);
-    const foot = sideX(mirror.z + 0.4, mirror.y - 1.3);
-    const stalk: Pair[] = [[mirror.z + 1.0, mirror.y - 1.6], [mirror.z + 0.9, mirror.y - 0.7], [mirror.z - 0.5, mirror.y - 0.7], [mirror.z - 0.4, mirror.y - 1.6]];
-    painted(prism(stalk, side * (foot - 0.3), side * (mirror.x - 0.8)), true, true);
+    painted(new THREE.SphereGeometry(1, 20, 12).scale(mirror.halfWidth, 1.55, 1.15).translate(side * mirror.x, mirror.y, mirror.z), true);
+    // The foot: a small dark plate on the door, longer than it is tall
+    const plate: Pair[] = [[footZ + 1.3, footY - 0.55], [footZ + 1.2, footY + 0.45], [footZ - 0.7, footY + 0.6], [footZ - 0.9, footY - 0.55]];
+    add(prism(plate, side * (footX - 0.25), side * (footX + 0.3)), mat.dark, true);
+    // The stalk: a round arm from the foot out and up into the housing's inner end
+    const from = new THREE.Vector3(side * (footX + 0.2), footY, footZ + 0.2);
+    const to = new THREE.Vector3(side * (mirror.x - mirror.halfWidth * 0.55), mirror.y - 0.45, mirror.z);
+    const arm = new THREE.CylinderGeometry(mirror.stalk, mirror.stalk * 1.2, from.distanceTo(to), 14);
+    arm.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize()));
+    arm.translate((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2);
+    add(arm, mat.body, true);
     // The glass, on the face that looks back down the car
     const back = Array.from({ length: 20 }, (_, i) => {
       const a = (i / 20) * Math.PI * 2;
