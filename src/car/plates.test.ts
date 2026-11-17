@@ -1,53 +1,63 @@
 import { describe, expect, it } from 'vitest';
-import { PARTS, SIDE_TOP, lampHalfHeight, lampOutline, lerpAt, topHalfWidth, wingArch } from './model';
+import { HEADLAMP_OUTLINE, PARTS, SIDE_TOP, TAIL_LAMP_OUTLINE, frontAngle, lerpAt, topHalfWidth, wingArch, wrapPoint } from './model';
 import { PLATES, PLATE_WORDS, pickPlate } from './plates';
+
+/** Whether a point is inside a closed outline. */
+const within = (outline: readonly (readonly [number, number])[], x: number, y: number): boolean => {
+  let hit = false;
+  for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
+    const [xi, yi] = outline[i]!;
+    const [xj, yj] = outline[j]!;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hit = !hit;
+  }
+  return hit;
+};
+/** Whether a round shape is wholly inside an outline: its middle and eight points round its edge. */
+const fits = (outline: readonly (readonly [number, number])[], x: number, y: number, rx: number, ry = rx): boolean =>
+  within(outline, x, y) && Array.from({ length: 8 }, (_, i) => (i / 8) * Math.PI * 2).every((a) => within(outline, x + Math.cos(a) * rx, y + Math.sin(a) * ry));
+const span = (outline: readonly (readonly [number, number])[], i: 0 | 1) => Math.max(...outline.map((p) => p[i])) - Math.min(...outline.map((p) => p[i]));
 
 describe('headlamps', () => {
   const { headlamp, grille } = PARTS;
-  it('keep both lamps and the reflector inside the lens, clear of each other and of the grille', () => {
-    const PER_DEGREE = 0.36;
-    const [outer, inner] = headlamp.lamps;
-    // The lamps' dark surrounds are a fifth bigger than the lamps.
-    expect((outer![0] - inner![0]) * PER_DEGREE).toBeGreaterThan((outer![2] + inner![2]) * 1.2);
-    expect(inner![0] - (inner![2] * 1.2) / PER_DEGREE).toBeGreaterThan(headlamp.inner);
-    expect(headlamp.reflector.angle - headlamp.reflector.halfWidth / PER_DEGREE).toBeGreaterThan(outer![0] + (outer![2] * 1.2) / PER_DEGREE);
-    expect(headlamp.reflector.angle + headlamp.reflector.halfWidth / PER_DEGREE).toBeLessThan(headlamp.outer);
-    expect(headlamp.inner).toBeGreaterThan(grille.topHalf);
-    for (const [angle, y, r] of headlamp.lamps) {
-      const { half, middle } = lampHalfHeight(headlamp, angle);
-      expect(y + r * 1.2).toBeLessThan(middle + half);
-      expect(y - r * 1.2).toBeGreaterThan(middle - half);
+  it('are traced as closed curves of about twenty points', () => {
+    for (const outline of [HEADLAMP_OUTLINE, TAIL_LAMP_OUTLINE]) {
+      expect(outline.length).toBeGreaterThanOrEqual(18);
+      expect(outline.length).toBeLessThanOrEqual(30);
     }
+  });
+  it('are large and rounded, not slits: well over half as tall as they are wide, seen from ahead', () => {
+    expect(span(HEADLAMP_OUTLINE, 0)).toBeGreaterThan(6);
+    expect(span(HEADLAMP_OUTLINE, 1)).toBeGreaterThan(4);
+    expect(span(HEADLAMP_OUTLINE, 1) / span(HEADLAMP_OUTLINE, 0)).toBeGreaterThan(0.5);
+  });
+  it('keep the lamps and the reflector inside the lens, clear of each other', () => {
+    const [main, projector] = headlamp.lamps;
+    for (const [x, y, r] of headlamp.lamps) expect(fits(HEADLAMP_OUTLINE, x, y, r * 1.15)).toBe(true);
+    expect(Math.hypot(main[0] - projector[0], main[1] - projector[1])).toBeGreaterThan((main[2] + projector[2]) * 1.15);
+    const { reflector } = headlamp;
+    expect(fits(HEADLAMP_OUTLINE, reflector.x, reflector.y, reflector.halfWidth, reflector.halfHeight)).toBe(true);
+    expect(reflector.x - reflector.halfWidth).toBeGreaterThan(main[0] + main[2] * 1.15);
     expect(headlamp.projector).toBeLessThan(1);
   });
-  it('are teardrops: tall and round outboard, narrowing to a point towards the grille', () => {
-    const outline = lampOutline(headlamp);
-    const span = (from: number, to: number) => {
-      const ys = outline.filter(([d]) => d >= from && d <= to).map(([, y]) => y);
-      return Math.max(...ys) - Math.min(...ys);
-    };
-    expect(span(headlamp.inner, headlamp.inner + 3)).toBeLessThan(span(headlamp.outer - 15, headlamp.outer) / 2);
-    expect(Math.min(...outline.map(([d]) => d))).toBeCloseTo(headlamp.inner, 5);
-    expect(Math.max(...outline.map(([d]) => d))).toBeCloseTo(headlamp.outer, 5);
+  it('land on the body where the front view puts them, clear of the grille', () => {
+    for (const [x, y] of HEADLAMP_OUTLINE) expect(Math.abs(wrapPoint(1, (frontAngle(1, x, y) * Math.PI) / 180, y)[0])).toBeCloseTo(x, 1);
+    const inner = Math.min(...HEADLAMP_OUTLINE.map(([x, y]) => frontAngle(1, x, y)));
+    expect(inner).toBeGreaterThan(grille.topHalf);
   });
 });
 
 describe('tail lamps', () => {
   const { tailLamp } = PARTS;
-  it('keep both lamp bowls and the reverse lamp inside the lens, clear of each other', () => {
-    for (const [angle, y, r] of tailLamp.lamps) {
-      const { half, middle } = lampHalfHeight(tailLamp, angle);
-      expect(y + r * 1.2).toBeLessThan(middle + half);
-      expect(y - r * 1.2).toBeGreaterThan(middle - half);
+  it('keep the round lamp and the clear strip inside the lens, clear of each other', () => {
+    const { strip } = tailLamp;
+    for (const [x, y, r] of tailLamp.lamps) {
+      expect(fits(TAIL_LAMP_OUTLINE, x, y, r * 1.25)).toBe(true);
+      expect(y + r * 1.25).toBeLessThan(strip.y - strip.halfHeight);
     }
-    const PER_DEGREE = 0.36;
-    const [outer, inner] = tailLamp.lamps;
-    const { reverse } = tailLamp;
-    expect((outer[0] - reverse.angle) * PER_DEGREE).toBeGreaterThan(outer[2] * 1.2 + reverse.halfWidth);
-    expect((reverse.angle - inner[0]) * PER_DEGREE).toBeGreaterThan(inner[2] * 1.2 + reverse.halfWidth);
+    expect(fits(TAIL_LAMP_OUTLINE, strip.x, strip.y, strip.halfWidth, strip.halfHeight)).toBe(true);
   });
-  it('are taller at the outer end, where they wrap the corner', () => {
-    expect(lampHalfHeight(tailLamp, tailLamp.outer).half).toBeGreaterThan(lampHalfHeight(tailLamp, tailLamp.inner).half);
+  it('land on the body where the rear view puts them', () => {
+    for (const [x, y] of TAIL_LAMP_OUTLINE) expect(Math.abs(wrapPoint(-1, (frontAngle(-1, x, y) * Math.PI) / 180, y)[0])).toBeCloseTo(x, 1);
   });
 });
 
