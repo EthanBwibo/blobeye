@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { HANDLING, carSpeeds, engineRpm, stepCar, type CarState, type DriveInput } from './handling';
 import { buildStage, formatTime, isNewBest, locate, newTrial, poseAt, stepTrial, type Stage, type Trial } from './stage';
-import { planOutline } from './sprite';
+import { CHASE, START, chaseAim, chaseFov, chaseView, countdown, newChase, stepChase, turnBetween } from './chase';
+import { RUN_OUT, growScenery, roadFrame } from './scenery';
 
 const DT = 1 / 120;
 const still: CarState = { x: 0, y: 0, heading: 0, vx: 0, vy: 0 };
@@ -139,16 +140,96 @@ describe('times', () => {
   });
 });
 
-describe('the car seen from above', () => {
-  it('is the traced plan outline, closed and the same on both sides', () => {
-    const outline = planOutline();
-    const lengths = outline.map((p) => p[0]);
-    expect(Math.max(...lengths) - Math.min(...lengths)).toBeCloseTo(100);
-    const half = outline.length / 2;
-    for (let i = 0; i < half; i++) {
-      const mirror = outline[outline.length - 1 - i]!;
-      expect(mirror[0]).toBe(outline[i]![0]);
-      expect(mirror[1]).toBe(-outline[i]![1]);
+describe('chase camera', () => {
+  const settle = (car: CarState, seconds = 3) => {
+    let chase = newChase({ ...car, vx: 0, vy: 0 });
+    for (let t = 0; t < seconds; t += DT) chase = stepChase(chase, car, DT);
+    return chase;
+  };
+
+  it('starts behind and above the car, looking past it', () => {
+    const car: CarState = { x: 10, y: 20, heading: Math.PI / 2, vx: 0, vy: 0 };
+    const { eye, target } = chaseView(newChase(car), car);
+    expect(eye.x).toBeCloseTo(10);
+    expect(eye.y).toBeCloseTo(20 - CHASE.distance);
+    expect(eye.height).toBeGreaterThan(target.height);
+    expect(target.y).toBeGreaterThan(20);
+  });
+
+  it('lags when the car turns, then comes round behind it', () => {
+    const turned: CarState = { ...still, heading: 1 };
+    let chase = newChase(still);
+    for (let t = 0; t < 0.1; t += DT) chase = stepChase(chase, turned, DT);
+    expect(chase.yaw).toBeGreaterThan(0.2);
+    expect(chase.yaw).toBeLessThan(0.8);
+    expect(settle(turned).yaw).toBeCloseTo(1, 2);
+  });
+
+  it('swings wide in a drift, towards the way the car is travelling', () => {
+    // Nose along +x, turning right (towards +y) and sliding to its own left (-y), as in a right-hand bend.
+    const sliding: CarState = { ...still, vx: 28, vy: -9 };
+    expect(chaseAim(sliding)).toBeLessThan(-0.15);
+    // The camera comes to rest on the inside of the nose's line (+y), so the car is seen side-on, out wide.
+    const { eye } = chaseView(settle(sliding), sliding);
+    expect(eye.y).toBeGreaterThan(1);
+    expect(Math.abs(chaseAim({ ...still, vx: 5, vy: -40 }))).toBeLessThanOrEqual(CHASE.maxSwing);
+    // A slow shuffle does not throw it about.
+    expect(Math.abs(chaseAim({ ...still, vx: 1, vy: -1 }))).toBeLessThan(0.1);
+  });
+
+  it('drops back and widens with speed, unless motion is reduced', () => {
+    const fast: CarState = { ...still, vx: 40 };
+    expect(settle(fast).reach).toBeGreaterThan(CHASE.distance + 1);
+    expect(chaseFov(40)).toBeGreaterThan(chaseFov(0));
+    expect(chaseFov(40, true)).toBe(CHASE.fov);
+  });
+
+  it('takes the short way round', () => {
+    expect(turnBetween(3, -3)).toBeCloseTo(Math.PI * 2 - 6);
+    const chase = stepChase({ yaw: 3, reach: CHASE.distance }, { ...still, heading: -3 }, DT);
+    expect(chase.yaw).toBeGreaterThan(3);
+  });
+});
+
+describe('the start', () => {
+  it('counts 3, 2, 1 with the car held, then lets it go', () => {
+    expect(countdown(0)).toEqual({ call: '3', held: true });
+    expect(countdown(START.beat * 1.5)).toEqual({ call: '2', held: true });
+    expect(countdown(START.beat * 2.99)).toEqual({ call: '1', held: true });
+    expect(countdown(START.beat * 3)).toEqual({ call: 'Go', held: false });
+    expect(countdown(START.beat * 3 + START.go + 0.01)).toEqual({ call: null, held: false });
+  });
+});
+
+describe('scenery', () => {
+  const stage = buildStage();
+  const bush = growScenery(stage);
+
+  it('is the same on every visit', () => {
+    expect(growScenery(stage)).toEqual(bush);
+    expect(bush.trees.length).toBeGreaterThan(100);
+    expect(bush.rocks.length).toBeGreaterThan(50);
+    expect(bush.tufts.length).toBeGreaterThan(1000);
+  });
+
+  it('keeps off the road', () => {
+    for (const plant of [...bush.trees, ...bush.rocks, ...bush.tufts]) {
+      let nearest = Infinity;
+      for (const p of stage.points) nearest = Math.min(nearest, Math.hypot(p[0] - plant.x, p[1] - plant.y));
+      if (nearest - plant.r <= stage.halfWidth) throw new Error(`something is growing on the road at ${plant.x}, ${plant.y}`);
     }
+  });
+
+  it('carries the road on straight past both ends', () => {
+    const end = roadFrame(stage, stage.length);
+    const beyond = roadFrame(stage, stage.length + RUN_OUT);
+    expect(Math.hypot(beyond.x - end.x, beyond.y - end.y)).toBeCloseTo(RUN_OUT, 0);
+    expect(beyond.ahead[0]).toBeCloseTo(end.ahead[0], 1);
+    const middle = roadFrame(stage, 300);
+    expect(middle.ahead[0] * middle.right[0] + middle.ahead[1] * middle.right[1]).toBeCloseTo(0);
+    // Right of the road is the same side as the car's right.
+    const pose = poseAt(stage, 300);
+    expect(middle.right[0]).toBeCloseTo(-Math.sin(pose.heading), 1);
+    expect(middle.right[1]).toBeCloseTo(Math.cos(pose.heading), 1);
   });
 });
