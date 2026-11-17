@@ -142,11 +142,11 @@ export const PARTS = {
      * trailing edge curls up above its leading edge; `top` is the highest point of the profile. It is also bowed
      * across the car: `arch` higher in the middle. `upright` is how far out the uprights stand, at the boot edges.
      */
-    front: -41.3, rear: -47.0, under: 26.2, top: 27.9, camber: 0.9, thick: 0.75, arch: 0.5, halfWidth: 15.0, upright: 13.7,
-    /** Each upright is a short slim strut, so there is still daylight between the wing and the boot. */
-    strut: { baseFront: -42.7, baseRear: -45.5, topFront: -43.9, topRear: -45.7, halfThick: 0.2 },
+    front: -41.3, rear: -47.0, under: 25.0, top: 26.7, camber: 0.9, thick: 0.75, arch: 0.5, halfWidth: 15.0, upright: 14.25,
+    /** Each upright is a short, thick blade, so there is only a slot of daylight between the wing and the boot lid. */
+    strut: { baseFront: -42.4, baseRear: -45.9, topFront: -43.5, topRear: -45.7, halfThick: 0.45 },
     /** The plate on each end: how far it reaches below and above the plank, how far it sweeps back at the top, and its thickness. */
-    endPlate: { below: 1.1, above: 1.0, sweep: 1.6, thick: 0.3 },
+    endPlate: { below: 0.7, above: 1.0, sweep: 1.6, thick: 0.3 },
   },
   /**
    * The headlamps' insides, in the front view like `HEADLAMP_OUTLINE`: the two round lamps as [x, height, radius]
