@@ -34,7 +34,7 @@ Reference sites for feel: lusion.co and unseen.co (scrolling and motion), oryzo.
 - **Reading the shared board has been checked against the live table; sending a time has not.** No test row was put in it. The first real finish is the test.
 - `.env` is not committed. Wherever the site is built for the public, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY` there, or that build keeps its top ten on the device.
 - The shared board trusts the page: anyone can send any name and any time the table allows. The table's own rules (the name's shape, 20 to 600 seconds, read and insert only) are the only guard.
-- On the crest the road is drawn without depth, like everything painted on the ground, so the far side of the hump can show through its near side, and the car's shadow rises with the car in a jump.
+- On the crest the road is drawn without depth, like everything painted on the ground, so the far side of the hump can show through its near side. In a jump the car's shadow stays on the road, but it tips with the body as the nose drops.
 - No real phone, no Safari, no Firefox.
 - Several car facts. See `docs/FACTS.md`.
 
