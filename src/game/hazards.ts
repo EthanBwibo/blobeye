@@ -1,5 +1,5 @@
 /**
- * What lies in wait along the stage: rocks on the road, a ford, a narrow bridge, zebra crossing, and a crest.
+ * What lies in wait along a stage: rocks on the road, a ford, a narrow bridge, zebra crossing, and crests.
  * Pure functions in road coordinates: `along` is metres along the road and `across` is metres to the right
  * of its middle. `stage.ts` turns these into places on the ground and applies them to the car.
  *
@@ -22,9 +22,21 @@ export interface Hazards {
   bridge: { from: number; to: number; taper: number; half: number };
   /** A herd walking across the road and back, `gap` metres apart, out to `span / 2` either side. */
   zebra: { at: number; count: number; gap: number; span: number; pace: number; r: number };
-  /** A hump in the road, `height` at its top and `reach` metres long each side. Taken fast, the car flies. */
-  crest: { at: number; reach: number; height: number };
+  /** Humps in the road, in the order they come, none overlapping. Taken fast, the car flies. */
+  crests: readonly Crest[];
 }
+
+/** A hump in the road, `height` at its top and `reach` metres long each side. */
+export interface Crest {
+  at: number;
+  reach: number;
+  height: number;
+}
+
+/** The ford, the bridge and the herd, for a stage that has none of them. */
+export const NO_WATER: Hazards['water'] = { from: -2, to: -1 };
+export const NO_BRIDGE: Hazards['bridge'] = { from: -2, to: -1, taper: 0, half: Infinity };
+export const NO_ZEBRA: Hazards['zebra'] = { at: -1000, count: 0, gap: 1, span: 1, pace: 0, r: 0 };
 
 /** The Naivasha stage's hazards. Distances are along the road as `buildStage` lays it by default. */
 export const HAZARDS: Hazards = {
@@ -38,16 +50,16 @@ export const HAZARDS: Hazards = {
   water: { from: 548, to: 564 },
   bridge: { from: 950, to: 978, taper: 26, half: 2.5 },
   zebra: { at: 1108, count: 5, gap: 9, span: 64, pace: 2.6, r: 1.1 },
-  crest: { at: 1700, reach: 20, height: 1.4 },
+  crests: [{ at: 1700, reach: 20, height: 1.4 }],
 };
 
 /** A stage with nothing on it, for tests of the bare road. */
 export const NO_HAZARDS: Hazards = {
   rocks: [],
-  water: { from: -2, to: -1 },
-  bridge: { from: -2, to: -1, taper: 0, half: Infinity },
-  zebra: { at: -1000, count: 0, gap: 1, span: 1, pace: 0, r: 0 },
-  crest: { at: -1000, reach: 1, height: 0 },
+  water: NO_WATER,
+  bridge: NO_BRIDGE,
+  zebra: NO_ZEBRA,
+  crests: [],
 };
 
 export const GRAVITY = 9.81;
@@ -74,11 +86,12 @@ export interface Ground {
   arch: number;
 }
 
-/** The road's height and shape at a distance along it. Flat, except for the crest. */
+/** The road's height and shape at a distance along it. Flat, except for the crests. */
 export function underAt(hazards: Hazards, along: number): Ground {
-  const { at, reach, height } = hazards.crest;
+  const crest = hazards.crests.find((c) => Math.abs(along - c.at) < c.reach);
+  if (!crest) return { height: 0, slope: 0, arch: 0 };
+  const { at, reach, height } = crest;
   const from = along - at;
-  if (Math.abs(from) >= reach) return { height: 0, slope: 0, arch: 0 };
   const turn = Math.PI / reach;
   return {
     height: (height * (1 + Math.cos(turn * from))) / 2,

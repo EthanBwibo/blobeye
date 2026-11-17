@@ -1,8 +1,8 @@
 /**
- * The stage: one gravel road from a start to a finish, and the run against the clock along it.
+ * A stage: one gravel road from a start to a finish, and the run against the clock along it.
  * Pure functions, in the same units and axes as `handling.ts`.
  *
- * The route is invented. It is not a map of any real rally stage.
+ * The routes are invented. None is a map of a real rally stage.
  */
 import { stepCar, type CarState, type DriveInput } from './handling';
 import { CAR_RADIUS, HAZARDS, KNOCK, LANDING, RAIL_DRAG, RAIL_REACH, WATER_DRAG, groundAt, inWater, roomAt, stepFlight, underAt, zebraAt, type Hazards } from './hazards';
@@ -10,15 +10,15 @@ import { checkpointsOf } from './splits';
 
 export type Spot = readonly [x: number, y: number];
 
-/** Points the road passes through, in metres. */
-const ROUTE: readonly Spot[] = [
+/** Points the Naivasha road passes through, in metres. The other stages are in `stages.ts`. */
+export const ROUTE: readonly Spot[] = [
   [0, 0], [140, 0], [260, -30], [340, -110], [350, -220], [290, -300], [190, -320], [110, -380],
   [100, -480], [170, -550], [290, -560], [400, -520], [480, -440], [560, -400], [650, -430], [700, -520],
   [680, -620], [590, -670], [480, -680], [360, -700], [250, -740], [150, -720],
 ];
 
 /** The route is drawn at this size. Tuned so a tidy run takes about a minute. */
-const ROUTE_SCALE = 0.85;
+export const ROUTE_SCALE = 0.85;
 
 export interface Stage {
   /** The middle of the road, as closely spaced points. */
@@ -55,8 +55,8 @@ export interface Pose {
   heading: number;
 }
 
-/** Smooth the route into a road: a Catmull-Rom curve through its points, sampled about every `spacing` metres. */
-export function buildStage(route: readonly Spot[] = ROUTE, scale = ROUTE_SCALE, spacing = 4, hazards: Hazards = HAZARDS): Stage {
+/** Smooth the route into a road `halfWidth` each side of its middle: a Catmull-Rom curve through its points, sampled about every `spacing` metres. */
+export function buildStage(route: readonly Spot[] = ROUTE, scale = ROUTE_SCALE, spacing = 4, hazards: Hazards = HAZARDS, halfWidth = 7): Stage {
   const at = (i: number): Spot => {
     const p = route[Math.min(route.length - 1, Math.max(0, i))]!;
     return [p[0] * scale, p[1] * scale];
@@ -84,7 +84,7 @@ export function buildStage(route: readonly Spot[] = ROUTE, scale = ROUTE_SCALE, 
   const [startAt, finishAt] = [12, length - 45];
   return {
     ...road,
-    halfWidth: 7,
+    halfWidth,
     startAt,
     finishAt,
     hazards,

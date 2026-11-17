@@ -10,19 +10,22 @@ export function checkpointsOf(startAt: number, finishAt: number): number[] {
   return CHECKPOINTS.map((share) => startAt + (finishAt - startAt) * share);
 }
 
+export type Medal = 'gold' | 'silver' | 'bronze';
+export const MEDALS: readonly Medal[] = ['gold', 'silver', 'bronze'];
+/** The time to beat for each medal, in seconds. Each stage has its own (see `stages.ts`). */
+export type Targets = Readonly<Record<Medal, number>>;
+
 /**
- * Times to beat. Set against the tests' scripted driver, which keeps to the middle of the road and
- * takes a little over 64 seconds: gold wants a braver run than that. Nobody has driven the stage yet,
+ * Naivasha's times to beat. Set against the tests' scripted driver, which keeps to the middle of the road
+ * and takes a little over 64 seconds: gold wants a braver run than that. Nobody has driven the stage yet,
  * so expect to move these.
  */
-export const TARGETS = { gold: 64, silver: 70, bronze: 80 } as const;
-export type Medal = keyof typeof TARGETS;
-export const MEDALS: readonly Medal[] = ['gold', 'silver', 'bronze'];
+export const TARGETS: Targets = { gold: 64, silver: 70, bronze: 80 };
 
 /** The best medal a time earns, or null if it misses bronze. */
-export function medalFor(time: number): Medal | null {
+export function medalFor(time: number, targets: Targets = TARGETS): Medal | null {
   if (!Number.isFinite(time) || time <= 0) return null;
-  return MEDALS.find((medal) => time <= TARGETS[medal]) ?? null;
+  return MEDALS.find((medal) => time <= targets[medal]) ?? null;
 }
 
 const LINES: Record<Medal | 'slow', string> = {
@@ -33,8 +36,8 @@ const LINES: Record<Medal | 'slow', string> = {
 };
 
 /** The line on the end screen for a time. */
-export function verdict(time: number): string {
-  return LINES[medalFor(time) ?? 'slow'];
+export function verdict(time: number, targets: Targets = TARGETS): string {
+  return LINES[medalFor(time, targets) ?? 'slow'];
 }
 
 /** A run worth remembering: its time and the clock at each checkpoint. */

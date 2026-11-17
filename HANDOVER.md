@@ -17,7 +17,9 @@ Reference sites for feel: lusion.co and unseen.co (scrolling and motion), oryzo.
 - Ten sheets on a laptop, seven on a phone. The engine chapter: five sheets, scroll-driven camera, live firing order, exhaust pulses, hold-to-rev, header switch, light and dark themes.
 - The X-ray sheet (sheet 2), on screens wider than 760px only: the paint drains out of the body, leaving a line drawing, and a simplified drivetrain shows in gold with its six parts named.
 - The rally timeline (sheet 8) and the 2004 specs table (sheet 9), on screens wider than 760px only. Every entry and figure is in `docs/FACTS.md` with its source.
-- The Safari stage on sheet 10, the last thing on the page: when the car drives off, the page cuts to a time trial in 3D, seen from a chase camera behind the car, with a 3-2-1 start. One gravel stage of about a minute, arrow keys or WASD, dust, a clock, and a top ten (name and time). Laptop only; phones get a note instead.
+- The Safari stage on sheet 10, the last thing on the page: when the car drives off, the page cuts to a time trial in 3D, seen from a chase camera behind the car, with a 3-2-1 start. Three gravel stages of about a minute each, picked on the start and finish panels: Naivasha, Hell's Gate (narrow, rocky, tight) and Soysambu (fast and open, three crests and a herd of zebra). Arrow keys or WASD, dust, a clock, and a top ten for each stage (name and time).
+- **Ghost.** Every run is recorded every tenth of a second; the quickest on this device for each stage is kept and raced next time as a see-through car. G or the Ghost button turns it off.
+- **Phones.** Held upright, the stage asks to be turned and waits. Sideways, it shows steering pads on the left and Go and Brake on the right, with tilt steering as an option, and asks for the whole screen. A phone draws fewer pixels, without edge smoothing, with half the bush and less dust.
 - On the stage: a co-driver's pace notes at the top of the screen, worked out from the road and what is on it; five hazards (rocks on the road, a ford, a narrow bridge, zebra crossing, and a crest that gets the car airborne); three split times, green or red against the player's best run on this device; bronze, silver and gold times, with a line on the end screen for each result; and dawn, midday or dusk light, picked at random for each run.
 - The top ten is shared: a Supabase table, `rally_times`, read and written with `fetch` and the project's publishable key (`VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY` in `.env`; see `.env.example`). Every time is also kept on the device, and when the shared board cannot be reached the device's own top ten is shown instead.
 - Unit tests on the engine model, the car's shape, the handling, the stage, the chase camera, the start, the scenery, the hazards, the pace notes, the splits and medals, the light, the top ten (shared and on the device) and the drivetrain. Typecheck and production build pass.
@@ -26,6 +28,7 @@ Reference sites for feel: lusion.co and unseen.co (scrolling and motion), oryzo.
 **Not checked**
 
 - **The sound has never been heard by a person.** It was written blind. Expect to tune it (issue: "Tune the exhaust sound by ear").
+- **Hell's Gate, Soysambu, the ghost, the stage picker and the touch controls have never been seen or used by a person, or run in a browser at all.** They were written against their tests and the build. Expect to tune the routes and medal times (`src/game/stages.ts`), the ghost's opacity (`GHOST_OPACITY` in `src/game/world.ts`), the tilt (`FULL_TILT` and `STEADY` in `src/game/touch.ts`; the sign has been worked out on paper, not on a phone), and the phone layout (`#rally.touch` in `src/game/rally.css`). Full screen and the landscape lock only work where the browser allows them (not on an iPhone), and only from a tap. The frame rate on a phone has not been measured.
 - **The Safari stage has never been driven or seen by a person, and its 3D view has never been run in a browser at all.** It was written blind against its tests and the build: a scripted driver finishes in about 64 seconds without leaving the road. Expect to tune `HANDLING` in `src/game/handling.ts`, `CHASE` in `src/game/chase.ts`, and the colours (`--sky`, `--haze`, `--hills` and the rest in `src/styles.css`) by eye. Its frame rate has not been measured.
 - Trees and rocks cannot be hit: the car passes through them.
 - **The timeline and specs sheets have never been seen by a person.** They were checked by tests and build only. In particular, the camera key on the timeline sheet (`ABOVE_TIMELINE` in `src/scene/camera.ts`) tips the view down to lift the car above the timeline panel; the amount is a guess.
@@ -71,9 +74,12 @@ src/ui/readouts.ts        tachometer, firing strip, pulse timeline
 src/ui/scroll.ts          smooth scrolling (Lenis), a snap point per sheet, keyboard paging
 src/ui/sheets.ts          which sheets are on the page at this width, and the scroll position in sheets (pure, tested)
 src/ui/intro.ts           the title card with the sound choice
-src/ui/rallyGate.ts       the way in to the Safari stage: fetches the game on the Safari sheet, starts it when the car has gone
+src/ui/rallyGate.ts       the way in to the Safari stages: fetches the game on the Safari sheet, starts it when the car has gone
 src/game/handling.ts      how the car drives on gravel (pure, tested)
 src/game/stage.ts         the road, the clock, and a run along it with everything that can happen to the car (pure, tested)
+src/game/stages.ts        the three stages as data: route, width, hazards, bush and medal times (pure, tested)
+src/game/ghost.ts         the best run recorded every tenth of a second, played back, and stored (pure, tested)
+src/game/touch.ts         the touch pads, and steering by tilting the phone (tilt is pure and tested)
 src/game/hazards.ts       what lies on the road and what each does: rocks, ford, bridge, zebra, crest (pure, tested)
 src/game/notes.ts         the co-driver's pace notes, worked out from the road and its hazards (pure, tested)
 src/game/splits.ts        checkpoints, split times against the best run, and the medal times (pure, tested)
@@ -108,7 +114,8 @@ Add a new behaviour by putting the numbers in `model.ts` first, testing them, th
 - **Coordinates.** +z is the front of the car, -x is the car's right, +y is up. Cylinder 1 is front right.
 - **The game's coordinates.** The driving is flat: x and y seen from above, heading 0 along +x, turning right makes it grow. `world.ts` draws that as x and z with y up. Things painted on the ground do not write depth and are drawn in order, so they never flicker against each other.
 - **The time of day's colours** are stage tokens set again on `#rally[data-light]` in `src/game/rally.css`. The game reads its colours from its own screen, not from the page, so a new stage colour needs a value there for dawn and midday as well as in the three theme blocks.
-- **Hazards are placed by distance along the road.** Move the route in `stage.ts` and they move with it, perhaps onto a bend: check `HAZARDS` again. The pace notes follow by themselves.
+- **Hazards are placed by distance along the road.** Move a route in `stages.ts` and they move with it, perhaps onto a bend: check that stage's hazards again. The pace notes follow by themselves.
+- **A stage's `id` is its name in the shared table** and in the keys on the device. Never change one, or its times are lost. Naivasha keeps the keys it had before there were other stages.
 - **The car's own details** (number plates, headlamps, rear wing, shadow, window glass) are in `src/scene/carScene.ts`, with their sizes in `src/car/model.ts` and `src/car/plates.ts`. The plates' word is picked once for each load of the page. The paint is a lit `MeshPhysicalMaterial` with a clearcoat (and the lamp lenses, chrome bowls, gold wheels and tyres are lit too), reflecting a CC0 Poly Haven studio HDRI (`public/hdri/`, loaded in `src/scene/studio.ts`) under ACES tone mapping; every other material has tone mapping switched off so the theme colours stay exact. None of these has been seen in a browser: expect to tune them by eye.
 - **The drawing runs in slow motion.** `drawingRevsPerSecond` is deliberately far slower than the real rpm. The sound uses real rpm.
 - **Adding a sheet** means a `<section class="view">` in `index.html`, a matching entry in `CAMERA_KEYS`, and new values for the sheet numbers below it in `src/scene/camera.ts` (`HERITAGE_SHEET`, `SPECS_SHEET`, `DRIVE_OFF_SHEET`). Renumber the "Sheet N" labels in the markup too.

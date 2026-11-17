@@ -3,6 +3,7 @@
  * the stage itself (how the road bends, and what lies on it), so they stay true if the stage changes.
  * Pure functions.
  */
+import type { Rock } from './hazards';
 import { poseAt, type Stage } from './stage';
 
 export interface Corner {
@@ -83,12 +84,23 @@ export function corners(stage: Stage): Corner[] {
   return found;
 }
 
+/** Rocks lying close together are one field, and get one call. A gap longer than `NOTES.lead` starts another. */
+export function rockFields(rocks: readonly Rock[]): Rock[][] {
+  const fields: Rock[][] = [];
+  for (const rock of [...rocks].sort((a, b) => a.along - b.along)) {
+    const last = fields[fields.length - 1];
+    if (last && rock.along - last[last.length - 1]!.along < NOTES.lead) last.push(rock);
+    else fields.push([rock]);
+  }
+  return fields;
+}
+
 /** Every call for a stage, in the order they come: its corners, and what lies on the road. */
 export function paceNotes(stage: Stage): Note[] {
   const notes: Note[] = corners(stage).map((c) => ({ at: c.from, text: `${c.turn} ${c.grade}${c.change ? `, ${c.change}` : ''}` }));
-  const { rocks, water, bridge, zebra, crest } = stage.hazards;
+  const { water, bridge, zebra, crests } = stage.hazards;
   const onStage = (at: number) => at > stage.startAt && at < stage.finishAt;
-  if (rocks.length) {
+  for (const rocks of rockFields(stage.hazards.rocks)) {
     const lean = rocks.reduce((sum, rock) => sum + rock.across, 0);
     const at = Math.min(...rocks.map((rock) => rock.along - rock.r));
     if (onStage(at)) notes.push({ at, text: lean > 0 ? 'Rocks on the right, keep left' : 'Rocks on the left, keep right' });
@@ -96,7 +108,7 @@ export function paceNotes(stage: Stage): Note[] {
   if (onStage(water.from)) notes.push({ at: water.from, text: 'Water!' });
   if (onStage(bridge.from)) notes.push({ at: bridge.from - bridge.taper, text: 'Narrow bridge' });
   if (zebra.count && onStage(zebra.at)) notes.push({ at: zebra.at - 4, text: 'Caution, zebra!' });
-  if (crest.height > 0 && onStage(crest.at)) notes.push({ at: crest.at - crest.reach, text: 'Crest, keep it flat' });
+  for (const crest of crests) if (crest.height > 0 && onStage(crest.at)) notes.push({ at: crest.at - crest.reach, text: 'Crest, keep it flat' });
   return notes.sort((a, b) => a.at - b.at);
 }
 

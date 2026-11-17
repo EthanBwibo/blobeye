@@ -1,24 +1,29 @@
 /**
- * The Safari stage: a time trial seen from a chase camera behind the car. This file runs the game and is
+ * The Safari stages: a time trial seen from a chase camera behind the car. This file runs the game and is
  * the only part that touches the page. The driving is in `handling.ts`, the road and the clock in
- * `stage.ts`, what lies on the road in `hazards.ts`, the co-driver's calls in `notes.ts`, the splits and
- * medals in `splits.ts`, the camera and the start in `chase.ts`, and the drawing in `world.ts`.
+ * `stage.ts`, the three stages in `stages.ts`, what lies on the road in `hazards.ts`, the co-driver's calls
+ * in `notes.ts`, the splits and medals in `splits.ts`, the ghost in `ghost.ts`, the camera and the start in
+ * `chase.ts`, the touch screen in `touch.ts`, and the drawing in `world.ts`.
  *
  * It is loaded on demand (see `src/ui/rallyGate.ts`), so nothing here may be imported by the main page.
  */
 import './rally.css';
 import type { EngineState } from '../engine/model';
 import { WHEELS } from '../car/model';
-import { createBoardHud } from './boardHud';
+import { createBoardHud, type BoardHud } from './boardHud';
 import { chaseFov, chaseView, countdown, newChase, stepChase, type Chase } from './chase';
+import { beatsGhost, finishGhost, ghostAt, ghostText, newRecorder, parseGhost, record, type Ghost, type Recorder } from './ghost';
 import { carSpeeds, easeSteer, engineRpm, type DriveInput } from './handling';
 import { groundAt } from './hazards';
+import { openBoard, STAGE_ID } from './leaderboard';
 import { pickLight } from './light';
 import { callAt, paceNotes, type Note } from './notes';
 import { scatter } from './scenery';
-import { MEDALS, TARGETS, formatGap, keepBest, medalFor, parseBestRun, splitGap, verdict, type BestRun } from './splits';
-import { buildStage, formatTime, herdAt, locate, newTrial, stepTrial, type Stage, type Trial } from './stage';
-import { MOST_DUST, UNIT, createWorld, type Puff, type World } from './world';
+import { MEDALS, formatGap, keepBest, medalFor, parseBestRun, splitGap, verdict, type BestRun } from './splits';
+import { formatTime, herdAt, locate, newTrial, stepTrial, type Stage, type Trial } from './stage';
+import { STAGES, buildStageOf, stageById, type StageDef } from './stages';
+import { createTouchPads, tiltSteer, type TouchPads } from './touch';
+import { UNIT, createWorld, type Puff, type World } from './world';
 
 export interface RallyHost {
   /** The engine the exhaust synth listens to. The game sets its revs from the road speed. */
@@ -35,23 +40,55 @@ export interface Rally {
 
 /** The driving runs in fixed steps, so a run is the same on a slow screen as on a fast one. */
 const STEP = 1 / 120;
-/** Where the player's best run and its splits are kept on this device. */
-const RUN_KEY = 'blobeye.rally.run';
+/** What is kept on this device, besides the top ten (see `leaderboard.ts`). */
+const KEYS = {
+  /** The best run's time and splits, for each stage. Naivasha's keeps the key it had before there were others. */
+  run: (stage: string) => (stage === STAGE_ID ? 'blobeye.rally.run' : `blobeye.rally.run.${stage}`),
+  ghost: (stage: string) => `blobeye.rally.ghost.${stage}`,
+  /** The last stage picked, whether the ghost is shown, and whether the phone steers by tilting. */
+  stage: 'blobeye.rally.stage',
+  ghostOn: 'blobeye.rally.ghost-on',
+  tilt: 'blobeye.rally.tilt',
+} as const;
+/** The ghost stays on the line this long after it finishes, then goes. */
+const GHOST_LINGER = 2;
+
+/** A phone or a tablet: a touch screen and no mouse. It gets the touch pads, and a lighter drawing. */
+const touchScreen = (): boolean => matchMedia('(hover: none) and (pointer: coarse)').matches;
+
+const read = (key: string): string | null => {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const write = (key: string, value: string): void => {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    /* it still stands for this visit */
+  }
+};
 
 interface Built {
+  def: StageDef;
+  lite: boolean;
   stage: Stage;
   world: World;
   notes: Note[];
 }
 
-// The stage and its drawing are built once and kept, so driving it again starts at once.
+// One stage and its drawing are built at a time and kept, so driving it again starts at once.
 let built: Built | null = null;
 let failed = false;
-function build(): Built {
-  if (!built) {
-    const stage = buildStage();
-    built = { stage, world: createWorld(stage), notes: paceNotes(stage) };
-  }
+function build(def: StageDef, lite: boolean): Built {
+  if (built && built.def.id === def.id && built.lite === lite) return built;
+  // Only one drawing at a time: a phone cannot hold several.
+  built?.world.dispose();
+  built = null;
+  const stage = buildStageOf(def);
+  built = { def, lite, stage, world: createWorld(stage, { bush: def.bush, lite }), notes: paceNotes(stage) };
   return built;
 }
 
@@ -63,7 +100,7 @@ export function warmRally(): void {
   if (built || failed) return;
   const run = (): void => {
     try {
-      build();
+      build(stageById(read(KEYS.stage)), touchScreen());
     } catch {
       failed = true;
     }
@@ -81,26 +118,19 @@ interface Dust extends Puff {
   size: number;
 }
 
-function readBest(): BestRun | null {
-  try {
-    return parseBestRun(window.localStorage.getItem(RUN_KEY));
-  } catch {
-    return null;
-  }
-}
-
-function saveBest(run: BestRun): void {
-  try {
-    window.localStorage.setItem(RUN_KEY, JSON.stringify(run));
-  } catch {
-    /* it still stands for this visit */
-  }
-}
-
 const capital = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
 
+/** The phone's tilt as it was last heard, for steering by it. */
+interface Tilt {
+  beta: number;
+  gamma: number;
+  heard: boolean;
+}
+
 export function startRally(host: RallyHost): Rally {
-  const { stage, world, notes } = build();
+  const touch = touchScreen();
+  let current = build(stageById(read(KEYS.stage)), touch);
+  let { stage, world, notes } = current;
   const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let trial: Trial = newTrial(stage);
 
@@ -108,26 +138,45 @@ export function startRally(host: RallyHost): Rally {
   const root = document.createElement('div');
   root.id = 'rally';
   root.tabIndex = -1;
+  root.classList.toggle('touch', touch);
   root.setAttribute('role', 'application');
-  root.setAttribute('aria-label', 'Safari stage time trial. Arrow keys or W A S D to drive, R to restart, Escape to leave.');
+  root.setAttribute(
+    'aria-label',
+    touch
+      ? 'Safari stage time trial. Steering pads on the left, Go and Brake on the right.'
+      : 'Safari stage time trial. Arrow keys or W A S D to drive, R to restart, G for the ghost, 1 to 3 to pick a stage, Escape to leave.',
+  );
+  const stageButtons = STAGES.map((def, i) => `<button type="button" class="tool" data-stage="${def.id}"><b>${def.name}</b><small>${touch ? def.blurb : `${i + 1} · ${def.blurb}`}</small></button>`).join('');
   root.innerHTML = `
     <div class="way"></div>
-    <div class="hud clock"><span>Safari stage · Time</span><b data-time>0:00.00</b></div>
+    <div class="hud clock"><span data-stage-name></span><b data-time>0:00.00</b></div>
     <div class="hud splits" data-splits>${stage.checkpoints.map((_, i) => `<span data-split><i>Split ${i + 1}</i><u>–</u><em></em></span>`).join('')}</div>
     <div class="hud pace" data-pace aria-live="polite" hidden><span>Co-driver</span><b data-pace-now></b><em data-pace-then></em></div>
-    <div class="hud call" data-call aria-live="assertive"><b data-call-big></b><strong data-verdict hidden></strong><span class="targets" data-targets hidden>${MEDALS.map(
-      (medal) => `<i data-medal="${medal}">${capital(medal)} ${formatTime(TARGETS[medal])}</i>`,
-    ).join('')}<i data-best></i></span><span data-call-small></span><small data-credit hidden>Unofficial fan project. Subaru didn't ask for this.</small></div>
-    <div class="hud keys"><span>Arrows or WASD · drive</span><span>R · restart</span><span>M · sound</span><span>Esc · leave</span></div>`;
+    <div class="side" data-side>
+      <div class="tools" role="group" aria-label="Game controls">
+        <button type="button" class="tool" data-tool="ghost" aria-pressed="true">Ghost</button>
+        <button type="button" class="tool touch-only" data-tool="tilt" aria-pressed="false">Tilt</button>
+        <button type="button" class="tool touch-only" data-tool="sound">Sound</button>
+        <button type="button" class="tool touch-only" data-tool="again">Again</button>
+        <button type="button" class="tool touch-only" data-tool="leave">Leave</button>
+      </div>
+    </div>
+    <div class="hud call" data-call aria-live="assertive"><b data-call-big></b><strong data-verdict hidden></strong><span class="targets" data-targets hidden></span><span data-call-small></span><span class="stages" data-stages role="group" aria-label="Stage">${stageButtons}</span><small data-credit hidden>Unofficial fan project. Subaru didn't ask for this.</small></div>
+    <div class="hud keys"><span>Arrows or WASD · drive</span><span>R · restart</span><span>G · ghost</span><span>M · sound</span><span>Esc · leave</span></div>
+    <div class="turn" data-turn><b>Turn your phone sideways</b><span>The stage is drawn for landscape</span></div>`;
   root.prepend(world.canvas);
   const part = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
   const [timeEl, callEl, callBig, callSmall, credit, wayEl] = [part('[data-time]'), part('[data-call]'), part('[data-call-big]'), part('[data-call-small]'), part('[data-credit]'), part('.way')];
-  const [paceEl, paceNow, paceThen, verdictEl, targetsEl, bestEl] = [part('[data-pace]'), part('[data-pace-now]'), part('[data-pace-then]'), part('[data-verdict]'), part('[data-targets]'), part('[data-best]')];
+  const [paceEl, paceNow, paceThen, verdictEl, targetsEl, stageName] = [part('[data-pace]'), part('[data-pace-now]'), part('[data-pace-then]'), part('[data-verdict]'), part('[data-targets]'), part('[data-stage-name]')];
+  const [side, stagesEl] = [part('[data-side]'), part('[data-stages]')];
   const splitRows = Array.from(root.querySelectorAll<HTMLElement>('[data-split]'));
-  const medalEls = Array.from(root.querySelectorAll<HTMLElement>('[data-medal]'));
+  const tool = (name: string) => part<HTMLButtonElement>(`[data-tool="${name}"]`);
+  let medalEls: HTMLElement[] = [];
+  let bestEl: HTMLElement = targetsEl;
 
-  // The top ten, and the name box on the finish panel. When the box closes the keys come back to the game.
-  const board = createBoardHud(root, callEl, () => root.focus());
+  // The top ten for the stage, and the name box on the finish panel. When the box closes the keys come back to the game.
+  const openHud = (): BoardHud => createBoardHud(side, callEl, () => root.focus(), openBoard(current.def.id), touch);
+  let board = openHud();
 
   // The colours are read from the game's own screen, which carries the time of day.
   const repaint = (): void => world.applyTheme(root);
@@ -136,6 +185,10 @@ export function startRally(host: RallyHost): Rally {
   const resize = (): void => world.resize(window.innerWidth, window.innerHeight);
   resize();
   window.addEventListener('resize', resize);
+
+  // --- The phone held upright: the stage waits, and asks to be turned
+  const upright = matchMedia('(orientation: portrait)');
+  const waitingForTurn = (): boolean => touch && upright.matches;
 
   // --- The run: the car, the camera behind it, and the 3-2-1 before it may move
   let chase: Chase = newChase(trial.car);
@@ -148,9 +201,16 @@ export function startRally(host: RallyHost): Rally {
   /** The nose up or down with the slope of the road, in radians. Up is positive. */
   let tilt = 0;
   const dust: Dust[] = [];
-  /** The player's best run on this device, and the one this run is measured against: the best as it stood at the start. */
+  /** The player's best run on this device for this stage, and the one this run is measured against: the best as it stood at the start. */
+  const readBest = (): BestRun | null => parseBestRun(read(KEYS.run(current.def.id)));
   let best = readBest();
-  let ghost = best;
+  let rival = best;
+  /** The ghost: the best run on this device as a recording, the one being raced this run, and this run's own recording. */
+  const readGhost = (): Ghost | null => parseGhost(read(KEYS.ghost(current.def.id)), current.def.id);
+  let ghost = readGhost();
+  let racing = ghost;
+  let recorder: Recorder = newRecorder();
+  let ghostOn = read(KEYS.ghostOn) !== 'off';
   /** How many splits are on the screen, so the rows are only written when one is taken. */
   let shownSplits = -1;
   const restart = (): void => {
@@ -160,7 +220,10 @@ export function startRally(host: RallyHost): Rally {
     board.reset();
     waited = steer = dive = lean = tilt = 0;
     dust.length = 0;
-    ghost = best;
+    rival = best;
+    racing = ghost;
+    recorder = newRecorder();
+    record(recorder, 0, { ...trial.car, height: trial.height });
     shownSplits = -1;
     // Each run gets its own time of day.
     const light = pickLight(Math.random());
@@ -169,14 +232,126 @@ export function startRally(host: RallyHost): Rally {
     repaint();
   };
 
+  /** The stage's own words on the screen: its name, and its times to beat. */
+  const labelStage = (): void => {
+    const { def } = current;
+    stageName.textContent = `${def.name} · Time`;
+    targetsEl.innerHTML = `${MEDALS.map((medal) => `<i data-medal="${medal}">${capital(medal)} ${formatTime(def.targets[medal])}</i>`).join('')}<i data-best></i>`;
+    medalEls = Array.from(targetsEl.querySelectorAll<HTMLElement>('[data-medal]'));
+    bestEl = targetsEl.querySelector<HTMLElement>('[data-best]')!;
+    for (const button of stagesEl.querySelectorAll<HTMLElement>('[data-stage]')) button.setAttribute('aria-pressed', String(button.dataset.stage === def.id));
+  };
+  labelStage();
+
+  /** Change stage. Only between runs: before the clock starts, or after the finish. */
+  const pickStage = (def: StageDef): void => {
+    if (trial.phase === 'running') return;
+    write(KEYS.stage, def.id);
+    if (def.id === current.def.id) return;
+    let next: Built;
+    try {
+      next = build(def, touch);
+    } catch (err) {
+      console.warn('The stage could not be built:', err);
+      return;
+    }
+    world.canvas.remove();
+    current = next;
+    ({ stage, world, notes } = current);
+    root.prepend(world.canvas);
+    resize();
+    board.dispose();
+    board = openHud();
+    best = readBest();
+    ghost = readGhost();
+    labelStage();
+    restart();
+    root.focus();
+  };
+  stagesEl.addEventListener('click', (e) => {
+    const id = (e.target as HTMLElement).closest<HTMLElement>('[data-stage]')?.dataset.stage;
+    if (id) pickStage(stageById(id));
+  });
+
+  // --- The ghost on or off, and the phone's tilt
+  const showTools = (): void => {
+    tool('ghost').setAttribute('aria-pressed', String(ghostOn));
+    tool('ghost').textContent = ghostOn ? 'Ghost on' : 'Ghost off';
+    tool('tilt').setAttribute('aria-pressed', String(tiltOn));
+    tool('tilt').textContent = tiltOn ? 'Tilt on' : 'Tilt off';
+  };
+  const toggleGhost = (): void => {
+    ghostOn = !ghostOn;
+    write(KEYS.ghostOn, ghostOn ? 'on' : 'off');
+    showTools();
+  };
+
+  const pads: TouchPads | null = touch ? createTouchPads(root) : null;
+  const tiltNow: Tilt = { beta: 0, gamma: 0, heard: false };
+  const onTilt = (e: DeviceOrientationEvent): void => {
+    if (e.beta === null || e.gamma === null) return;
+    tiltNow.beta = e.beta;
+    tiltNow.gamma = e.gamma;
+    tiltNow.heard = true;
+  };
+  /** How far the screen is turned from the phone's own upright, in degrees. */
+  const screenAngle = (): number => screen.orientation?.angle ?? Number((window as { orientation?: unknown }).orientation ?? 0);
+  let tiltOn = false;
+  const setTilt = (on: boolean): void => {
+    tiltOn = on;
+    pads?.setTilt(on);
+    if (on) window.addEventListener('deviceorientation', onTilt);
+    else window.removeEventListener('deviceorientation', onTilt);
+    write(KEYS.tilt, on ? 'on' : 'off');
+    showTools();
+  };
+  /** Safari asks the player first, and only from a tap. */
+  const askForTilt = async (): Promise<boolean> => {
+    const ask = (DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> }).requestPermission;
+    if (typeof ask !== 'function') return true;
+    try {
+      return (await ask.call(DeviceOrientationEvent)) === 'granted';
+    } catch {
+      return false;
+    }
+  };
+  const toggleTilt = async (): Promise<void> => {
+    if (tiltOn) return setTilt(false);
+    if (await askForTilt()) setTilt(true);
+  };
+  // Tilt is remembered, but where Safari must ask first it waits for a tap on the button.
+  if (touch && read(KEYS.tilt) === 'on' && typeof (DeviceOrientationEvent as unknown as { requestPermission?: unknown }).requestPermission !== 'function') setTilt(true);
+  showTools();
+
+  // --- A phone gets the whole screen, held sideways, if the browser allows it. Only a tap may ask.
+  const fill = (): void => {
+    if (!touch || document.fullscreenElement || !document.documentElement.requestFullscreen) return;
+    document.documentElement
+      .requestFullscreen({ navigationUI: 'hide' })
+      .then(() => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
+      .catch(() => undefined);
+  };
+  root.addEventListener('pointerdown', fill);
+
+  root.querySelector('.tools')!.addEventListener('click', (e) => {
+    const name = (e.target as HTMLElement).closest<HTMLElement>('[data-tool]')?.dataset.tool;
+    if (name === 'ghost') toggleGhost();
+    else if (name === 'tilt') void toggleTilt();
+    else if (name === 'sound') host.toggleSound();
+    else if (name === 'again') restart();
+    else if (name === 'leave') stop();
+    if (name !== 'leave') root.focus();
+  });
+
   // --- Keys
   const held = new Set<string>();
   const DRIVE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD']);
+  const STAGE_KEYS = STAGES.map((_, i) => `Digit${i + 1}`);
   const onKeyDown = (e: KeyboardEvent): void => {
     // While a name is being typed, the letters are letters.
     if (board.takesKey(e)) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
-    const known = DRIVE_KEYS.has(e.code) || ['KeyR', 'KeyM', 'Escape', 'Enter', 'Space'].includes(e.code);
+    const known = DRIVE_KEYS.has(e.code) || STAGE_KEYS.includes(e.code) || ['KeyR', 'KeyM', 'KeyG', 'Escape', 'Enter', 'Space'].includes(e.code);
     if (!known) return;
     // The page behind uses the same keys to turn its sheets.
     e.preventDefault();
@@ -185,28 +360,40 @@ export function startRally(host: RallyHost): Rally {
     else if (e.repeat) return;
     else if (e.code === 'KeyR' || (e.code === 'Enter' && trial.phase === 'finished')) restart();
     else if (e.code === 'KeyM') host.toggleSound();
+    else if (e.code === 'KeyG') toggleGhost();
+    else if (STAGE_KEYS.includes(e.code)) pickStage(STAGES[STAGE_KEYS.indexOf(e.code)]!);
     else if (e.code === 'Escape') stop();
   };
   const onKeyUp = (e: KeyboardEvent): void => void held.delete(e.code);
-  const letGo = (): void => held.clear();
+  const letGo = (): void => {
+    held.clear();
+    pads?.release();
+  };
   window.addEventListener('keydown', onKeyDown, true);
   window.addEventListener('keyup', onKeyUp, true);
   window.addEventListener('blur', letGo);
 
   const down = (...codes: string[]) => codes.some((c) => held.has(c));
+  const throttleHeld = (): boolean => down('ArrowUp', 'KeyW') || (pads?.read().throttle ?? false);
   const readInput = (dt: number): DriveInput => {
-    const want = (down('ArrowRight', 'KeyD') ? 1 : 0) - (down('ArrowLeft', 'KeyA') ? 1 : 0);
-    steer = easeSteer(steer, want, dt);
+    const keys = (down('ArrowRight', 'KeyD') ? 1 : 0) - (down('ArrowLeft', 'KeyA') ? 1 : 0);
+    if (tiltOn && keys === 0 && tiltNow.heard) {
+      // The phone is a wheel: follow it closely, but not every tremor.
+      steer += (tiltSteer(tiltNow.beta, tiltNow.gamma, screenAngle()) - steer) * (1 - Math.exp(-dt * 14));
+    } else {
+      steer = easeSteer(steer, keys || (pads?.read().steer ?? 0), dt);
+    }
     // Until the count reaches Go the pedals do nothing, so the clock cannot start early.
     if (countdown(waited).held) return { throttle: 0, brake: 0, steer };
-    return { throttle: down('ArrowUp', 'KeyW') ? 1 : 0, brake: down('ArrowDown', 'KeyS') ? 1 : 0, steer };
+    const brake = down('ArrowDown', 'KeyS') || (pads?.read().brake ?? false);
+    return { throttle: throttleHeld() ? 1 : 0, brake: brake ? 1 : 0, steer };
   };
 
   // --- Dust from the rear wheels, spray from the ford, and a cloud when the car hits something or lands
   const random = scatter(7);
   let owed = 0;
   const puff = (x: number, y: number, vx: number, vy: number, rise: number, wet: number): void => {
-    if (dust.length >= MOST_DUST) return;
+    if (dust.length >= world.mostDust) return;
     dust.push({ x, y, height: trial.height + 0.2, vx, vy, rise, age: 0, life: 0.9 + random() * 0.9, size: 0.9 + random() * 0.7, width: 0, fade: 0, wet });
   };
   /** A cloud thrown out all round the car. */
@@ -228,8 +415,10 @@ export function startRally(host: RallyHost): Rally {
     const { forward, sideways } = carSpeeds(trial.car);
     const pace = Math.hypot(forward, sideways);
     // More dust the faster the car goes, and much more when it is sliding. None in the air; in the ford it is spray.
+    // A phone's drawing keeps less dust, so it throws up less, and the trail is as long.
     const wet = trial.wet ? 1 : 0;
-    owed += (pace > 2 && !trial.airborne ? (pace * 1.1 + Math.abs(sideways) * 6) * (wet ? 2.5 : 1) : 0) * dt;
+    const share = current.lite ? 0.45 : 1;
+    owed += (pace > 2 && !trial.airborne ? (pace * 1.1 + Math.abs(sideways) * 6) * (wet ? 2.5 : 1) * share : 0) * dt;
     const cos = Math.cos(trial.car.heading);
     const sin = Math.sin(trial.car.heading);
     while (owed >= 1) {
@@ -278,6 +467,12 @@ export function startRally(host: RallyHost): Rally {
     rolled += forward * dt;
   };
 
+  /**
+   * Where the ghost is now: on the run's clock, gone a little after it finishes. Once the player is over the
+   * line the clock stops, and a ghost stood still on the road would only be in the way, so it goes too.
+   */
+  const ghostNow = () => (ghostOn && racing && trial.phase !== 'finished' && trial.time <= racing.time + GHOST_LINGER ? ghostAt(racing, trial.time) : null);
+
   const draw = (): void => {
     const { forward } = carSpeeds(trial.car);
     const { eye, target } = chaseView(chase, trial.car);
@@ -295,6 +490,7 @@ export function startRally(host: RallyHost): Rally {
       target: { ...target, height: target.height + trial.height * 0.8 },
       fov: chaseFov(forward, calm),
       dust,
+      ghost: ghostNow(),
     });
   };
 
@@ -309,7 +505,7 @@ export function startRally(host: RallyHost): Rally {
     splitRows.forEach((row, i) => {
       const [time, gapEl] = [row.querySelector('u')!, row.querySelector('em')!];
       const split = trial.splits[i];
-      const gap = split === undefined ? null : splitGap(ghost, i, split);
+      const gap = split === undefined ? null : splitGap(rival, i, split);
       time.textContent = split === undefined ? '–' : formatTime(split);
       gapEl.textContent = gap === null ? '' : formatGap(gap);
       row.classList.toggle('ahead', gap !== null && gap < 0);
@@ -331,6 +527,7 @@ export function startRally(host: RallyHost): Rally {
 
     const { call, held: waiting } = countdown(waited);
     const finished = trial.phase === 'finished';
+    root.classList.toggle('done', finished);
     let big = '';
     let small = '';
     if (finished) {
@@ -341,7 +538,7 @@ export function startRally(host: RallyHost): Rally {
       small = 'Get ready';
     } else if (trial.phase === 'ready') {
       big = 'Go';
-      small = 'The clock starts when you press Up or W';
+      small = touch ? 'The clock starts when you press Go' : 'The clock starts when you press Up or W';
     } else if (call) {
       big = call;
     }
@@ -349,14 +546,17 @@ export function startRally(host: RallyHost): Rally {
     setText(callBig, big);
     setText(callSmall, small);
     callSmall.hidden = small === '';
+    // The stages can be changed between runs: before the clock starts, and after the finish.
+    stagesEl.hidden = trial.phase === 'running';
 
     // The end screen: the medal, a line for the result, the times to beat, and the fan project note.
-    const medal = finished ? medalFor(trial.time) : null;
+    const { targets } = current.def;
+    const medal = finished ? medalFor(trial.time, targets) : null;
     for (const name of MEDALS) callBig.classList.toggle(name, medal === name);
     for (const el of medalEls) el.classList.toggle('won', el.dataset.medal === medal);
     verdictEl.hidden = targetsEl.hidden = credit.hidden = !finished;
     if (finished) {
-      setText(verdictEl, medal ? `${capital(medal)} · ${verdict(trial.time)}` : verdict(trial.time));
+      setText(verdictEl, medal ? `${capital(medal)} · ${verdict(trial.time, targets)}` : verdict(trial.time, targets));
       setText(bestEl, best ? `Your best ${formatTime(best.time)}` : '');
     }
   };
@@ -370,6 +570,13 @@ export function startRally(host: RallyHost): Rally {
     if (!running) return;
     const dt = Math.min(0.05, (now - previous) / 1000);
     previous = now;
+    // Held upright, the phone shows only the request to turn it, and the run waits.
+    if (waitingForTurn()) {
+      letGo();
+      host.engine.throttle = false;
+      requestAnimationFrame(frame);
+      return;
+    }
     bank += dt;
     while (bank >= STEP) {
       bank -= STEP;
@@ -384,17 +591,24 @@ export function startRally(host: RallyHost): Rally {
       else if (trial.event === 'land') burst(34, 5, 0);
       else if (trial.event === 'scrape' && random() < 0.2) burst(1, 3, 0);
       raiseDust(STEP);
+      if (was === 'running') record(recorder, trial.time, { ...trial.car, height: trial.height });
       if (was === 'running' && trial.phase === 'finished') {
         board.finished(trial.time);
         const kept = keepBest(best, { time: trial.time, splits: trial.splits });
-        if (kept && kept !== best) saveBest(kept);
+        if (kept && kept !== best) write(KEYS.run(current.def.id), JSON.stringify(kept));
         best = kept;
+        // The quickest run on this device becomes the ghost for the next.
+        const run = finishGhost(recorder, current.def.id, trial.time);
+        if (run && beatsGhost(ghost, run.time)) {
+          ghost = run;
+          write(KEYS.ghost(current.def.id), ghostText(run));
+        }
       }
     }
     // The exhaust synth follows these.
     revs += (engineRpm(carSpeeds(trial.car).forward) - revs) * (1 - Math.exp(-dt * 12));
     host.engine.rpm = revs;
-    host.engine.throttle = trial.phase === 'running' && down('ArrowUp', 'KeyW');
+    host.engine.throttle = trial.phase === 'running' && throttleHeld();
     draw();
     showReadouts();
     requestAnimationFrame(frame);
@@ -407,8 +621,13 @@ export function startRally(host: RallyHost): Rally {
     window.removeEventListener('keyup', onKeyUp, true);
     window.removeEventListener('blur', letGo);
     window.removeEventListener('resize', resize);
+    window.removeEventListener('deviceorientation', onTilt);
     scheme.removeEventListener('change', repaint);
     host.engine.throttle = false;
+    if (document.fullscreenElement) {
+      (screen.orientation as ScreenOrientation & { unlock?: () => void }).unlock?.();
+      document.exitFullscreen().catch(() => undefined);
+    }
     root.remove();
     host.onExit();
   }
@@ -420,6 +639,8 @@ export function startRally(host: RallyHost): Rally {
   draw();
   showReadouts();
   root.focus();
+  // Started by a tap on the button, a phone may have the whole screen at once.
+  fill();
   requestAnimationFrame((now) => {
     previous = now;
     frame(now);

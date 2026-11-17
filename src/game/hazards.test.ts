@@ -41,7 +41,8 @@ function run(on: Stage, trial: Trial, seconds: number, throttle = 0, steering = 
 
 describe('the hazards as laid out', () => {
   it('are all on the stage, in the order they are met, clear of the start and the finish', () => {
-    const { rocks, water, bridge, zebra, crest } = HAZARDS;
+    const { rocks, water, bridge, zebra } = HAZARDS;
+    const crest = HAZARDS.crests[0]!;
     const order = [rocks[0]!.along, water.from, bridge.from - bridge.taper, zebra.at, crest.at - crest.reach];
     expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(order[0]).toBeGreaterThan(stage.startAt + 100);
@@ -60,7 +61,7 @@ describe('the hazards as laid out', () => {
 
 describe('the crest', () => {
   it('is a hump in a flat road', () => {
-    const { at, reach, height } = HAZARDS.crest;
+    const { at, reach, height } = HAZARDS.crests[0]!;
     expect(groundAt(HAZARDS, at)).toBeCloseTo(height);
     expect(groundAt(HAZARDS, at - reach)).toBeCloseTo(0);
     expect(groundAt(HAZARDS, at + reach + 5)).toBe(0);
@@ -69,7 +70,7 @@ describe('the crest', () => {
   });
 
   it('knows its own shape: level at the top, climbing before it, and curving away over it', () => {
-    const { at, reach } = HAZARDS.crest;
+    const { at, reach } = HAZARDS.crests[0]!;
     expect(underAt(HAZARDS, at).slope).toBeCloseTo(0);
     expect(underAt(HAZARDS, at).arch).toBeLessThan(0);
     expect(underAt(HAZARDS, at - reach / 2).slope).toBeGreaterThan(0);
@@ -114,7 +115,7 @@ describe('the crest', () => {
   });
 
   it('gets the car airborne at speed, and lands it once', () => {
-    const { at, height } = HAZARDS.crest;
+    const { at, height } = HAZARDS.crests[0]!;
     const trial = launch(stage, at - 70, 40);
     const before = run(stage, trial, 1, 1);
     expect(before.air).toBe(0);
@@ -131,16 +132,16 @@ describe('the crest', () => {
   });
 
   it('keeps a slow car on the ground', () => {
-    const trial = launch(stage, HAZARDS.crest.at - 40, 16);
+    const trial = launch(stage, HAZARDS.crests[0]!.at - 40, 16);
     const over = run(stage, trial, 6, 0.2);
-    expect(trial.progress).toBeGreaterThan(HAZARDS.crest.at + HAZARDS.crest.reach);
+    expect(trial.progress).toBeGreaterThan(HAZARDS.crests[0]!.at + HAZARDS.crests[0]!.reach);
     expect(over.air).toBe(0);
     expect(over.events.has('land')).toBe(false);
-    expect(over.highest).toBeCloseTo(HAZARDS.crest.height, 1);
+    expect(over.highest).toBeCloseTo(HAZARDS.crests[0]!.height, 1);
   });
 
   it('cannot be steered or braked in the air', () => {
-    const trial = launch(stage, HAZARDS.crest.at - 70, 42);
+    const trial = launch(stage, HAZARDS.crests[0]!.at - 70, 42);
     // Well off the ground, not the first moment the wheels go light.
     while (trial.aloft < 0.2) stepTrial(stage, trial, { throttle: 1, brake: 0, steer: 0 }, DT);
     const { heading, vx, vy } = trial.car;

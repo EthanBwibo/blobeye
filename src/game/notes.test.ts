@@ -71,7 +71,8 @@ describe('the pace notes', () => {
   const texts = notes.map((n) => n.text);
 
   it('call every hazard, each before it is reached', () => {
-    const { rocks, water, bridge, zebra, crest } = HAZARDS;
+    const { rocks, water, bridge, zebra } = HAZARDS;
+    const crest = HAZARDS.crests[0]!;
     const at = (text: string) => notes.find((n) => n.text === text)!.at;
     expect(at('Water!')).toBe(water.from);
     expect(at('Crest, keep it flat')).toBe(crest.at - crest.reach);
