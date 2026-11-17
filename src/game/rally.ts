@@ -13,19 +13,19 @@ import type { EngineState } from '../engine/model';
 import { WHEELS } from '../car/model';
 import { createBoardHud, type BoardHud } from './boardHud';
 import { chaseFov, chaseView, countdown, newChase, stepChase, type Chase } from './chase';
-import { angleToRoad, dueCalls, joinCalls, newWrongWay, stepWrongWay, type WrongWay } from './codriver';
+import { angleToRoad, dueCalls, joinCalls, newWrongWay, stepWrongWay, wantsLights, type WrongWay } from './codriver';
 import { beatsGhost, finishGhost, ghostAt, ghostText, newRecorder, packReplay, parseGhost, record, unpackReplay, type Ghost, type Recorder } from './ghost';
 import { carSpeeds, easeSteer, engineRpm, gearFor, type DriveInput } from './handling';
 import { groundAt } from './hazards';
 import { kmh, needleAngle, revMeterSvg, DIAL } from './instruments';
 import { openBoard, STAGE_ID, type Board } from './leaderboard';
-import { pickLight } from './light';
+import { SKIES, lampStrength, pickLight, type Light } from './light';
 import { minimapSvg } from './minimap';
 import { paceNotes, shownAt, type Note } from './notes';
 import { caption, cautionSvg, signSvg } from './paceIcons';
 import { scatter } from './scenery';
 import { MEDALS, formatGap, keepBest, medalFor, parseBestRun, sectorGap, sectorTimes, verdict, type BestRun } from './splits';
-import { formatTime, herdAt, locate, newTrial, stepTrial, type Stage, type Trial } from './stage';
+import { canReset, creaturesAt, formatTime, locate, newTrial, resetToRoad, stepTrial, type Stage, type Trial } from './stage';
 import { STAGES, buildStageOf, stageById, type StageDef } from './stages';
 import { buzz, buzzFor, createTouchPads, tiltSteer, type TouchPads } from './touch';
 import { createVoice } from './voice';
@@ -57,6 +57,8 @@ const KEYS = {
   stage: 'blobeye.rally.stage',
   /** 'off', 'best' or 'record'. It was 'on' or 'off' before there was a record to race, and 'on' reads as 'best'. */
   ghostMode: 'blobeye.rally.ghost-on',
+  /** Whether the headlights are on. */
+  lights: 'blobeye.rally.lights',
   tilt: 'blobeye.rally.tilt',
   voice: 'blobeye.rally.codriver',
 } as const;
@@ -161,7 +163,7 @@ export function startRally(host: RallyHost): Rally {
     'aria-label',
     touch
       ? 'Safari stage time trial. A steering wheel bottom left; the handbrake, brake and throttle bottom right.'
-      : 'Safari stage time trial. Arrow keys or W A S D to drive, Space for the handbrake, R to restart, C for the co-driver, G for the ghost, 1 to 3 to pick a stage, Escape to leave.',
+      : 'Safari stage time trial. Arrow keys or W A S D to drive, Space for the handbrake, R to restart or, when stuck, to get back on the road, L for the headlights, C for the co-driver, G for the ghost, 1 to 3 to pick a stage, Escape to leave.',
   );
   const stageButtons = STAGES.map((def, i) => `<button type="button" class="tool" data-stage="${def.id}"><b>${def.name}</b><small>${touch ? def.blurb : `${i + 1} · ${def.blurb}`}</small></button>`).join('');
   const sectors = stage.checkpoints.length + 1;
@@ -173,6 +175,7 @@ export function startRally(host: RallyHost): Rally {
     <p class="sr" aria-live="polite" data-pace-said></p>
     <div class="hud sector" data-sector hidden><span data-sector-name></span><b data-sector-time></b><em data-sector-gap></em></div>
     <div class="wrongway" data-wrongway role="alert" hidden>Wrong way</div>
+    <button type="button" class="hud reset" data-reset hidden>Reset to road<small>R</small></button>
     <div class="hud minimap" data-map></div>
     <div class="hud gauges"><div class="dial">${revMeterSvg()}</div><div class="readout"><span>Gear</span><b data-gear>1</b><span>km/h</span><b data-speed>0</b></div></div>
     <button type="button" class="hud codriver" data-codriver aria-pressed="true">Co-driver · on</button>
@@ -181,6 +184,7 @@ export function startRally(host: RallyHost): Rally {
       <div class="drawer" id="rally-drawer" data-drawer></div>
       <div class="tools" role="group" aria-label="Game controls">
         <button type="button" class="tool" data-tool="ghost" aria-pressed="true">Ghost</button>
+        <button type="button" class="tool" data-tool="lights" aria-pressed="false">Lights off</button>
         <button type="button" class="tool touch-only" data-tool="tilt" aria-pressed="false">Tilt</button>
         <button type="button" class="tool touch-only" data-tool="sound">Sound</button>
         <button type="button" class="tool touch-only" data-tool="again">Again</button>
@@ -188,7 +192,7 @@ export function startRally(host: RallyHost): Rally {
       </div>
     </div>
     <div class="hud call" data-call aria-live="assertive"><b data-call-big></b><strong data-verdict hidden></strong><span class="targets" data-targets hidden></span><span data-call-small></span><span class="stages" data-stages role="group" aria-label="Stage">${stageButtons}</span><small data-credit hidden>Unofficial fan project. Subaru didn't ask for this.</small></div>
-    <div class="hud keys"><span>Arrows or WASD · drive</span><span>Space · handbrake</span><span>R · restart</span><span>M · sound</span><span>C · co-driver</span><span>G · ghost</span><span>1–3 · stage</span><span>Esc · leave</span></div>
+    <div class="hud keys"><span>Arrows or WASD · drive</span><span>Space · handbrake</span><span>R · restart</span><span>L · lights</span><span>M · sound</span><span>C · co-driver</span><span>G · ghost</span><span>1–3 · stage</span><span>Esc · leave</span></div>
     <div class="turn" data-turn><b>Turn your phone sideways</b><span>The stage is drawn for landscape</span></div>`;
   root.prepend(world.canvas);
   const part = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
@@ -197,6 +201,7 @@ export function startRally(host: RallyHost): Rally {
   const [side, stagesEl, mapEl] = [part('[data-side]'), part('[data-stages]'), part('[data-map]')];
   const [sectorEl, sectorName, sectorTime, sectorGapEl, wrongEl] = [part('[data-sector]'), part('[data-sector-name]'), part('[data-sector-time]'), part('[data-sector-gap]'), part('[data-wrongway]')];
   const [gearEl, speedEl, codriverEl] = [part('[data-gear]'), part('[data-speed]'), part<HTMLButtonElement>('[data-codriver]')];
+  const resetEl = part<HTMLButtonElement>('[data-reset]');
   // On a phone only the clock, the next call, a small rev meter and the controls stay on the road. The
   // sectors, the map, the co-driver switch and the tools wait in a drawer behind a button in the corner.
   const drawer = part('[data-drawer]');
@@ -326,11 +331,43 @@ export function startRally(host: RallyHost): Rally {
     gearNow = 1;
     voice.hush();
     // Each run gets its own time of day.
-    const light = pickLight(Math.random());
+    light = pickLight(Math.random());
     root.dataset.light = light;
     world.setLight(light);
+    askedForLights = false;
     repaint();
   };
+
+  // --- The headlights, and the co-driver asking for them on a night run
+  let light: Light = 'dusk';
+  let lightsOn = read(KEYS.lights) === 'on';
+  /** Whether the co-driver has asked for the lights this run. */
+  let askedForLights = false;
+  const toggleLights = (): void => {
+    lightsOn = !lightsOn;
+    write(KEYS.lights, lightsOn ? 'on' : 'off');
+    showTools();
+  };
+  /** Early in the count, on a night run with the lights off, the co-driver says so. Once a run. */
+  const callForLights = (): void => {
+    if (!wantsLights(SKIES[light].dark, lightsOn, askedForLights, waited)) return;
+    askedForLights = true;
+    voice.say('Lights!', true);
+    setText(paceSaid, 'Lights!');
+  };
+
+  // --- Stuck off the road: after a moment, a way back onto it
+  const backOnRoad = (): void => {
+    if (!canReset(trial)) return;
+    resetToRoad(stage, trial);
+    chase = newChase(trial.car);
+    steer = 0;
+    resetEl.hidden = true;
+  };
+  resetEl.addEventListener('click', () => {
+    backOnRoad();
+    root.focus();
+  });
 
   /** The stage's own words on the screen: its name, and its times to beat. */
   const labelStage = (): void => {
@@ -388,6 +425,8 @@ export function startRally(host: RallyHost): Rally {
     return 'Ghost · loading record';
   };
   const showTools = (): void => {
+    tool('lights').setAttribute('aria-pressed', String(lightsOn));
+    tool('lights').textContent = lightsOn ? 'Lights on' : 'Lights off';
     const button = tool('ghost');
     button.setAttribute('aria-pressed', String(ghostMode !== 'off'));
     // A driver's name is text from a stranger: never markup.
@@ -494,6 +533,7 @@ export function startRally(host: RallyHost): Rally {
   part('.tools').addEventListener('click', (e) => {
     const name = (e.target as HTMLElement).closest<HTMLElement>('[data-tool]')?.dataset.tool;
     if (name === 'ghost') toggleGhost();
+    else if (name === 'lights') toggleLights();
     else if (name === 'tilt') void toggleTilt();
     else if (name === 'sound') host.toggleSound();
     else if (name === 'again') {
@@ -512,14 +552,17 @@ export function startRally(host: RallyHost): Rally {
     // While a name is being typed, the letters are letters.
     if (board.takesKey(e)) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
-    const known = DRIVE_KEYS.has(e.code) || STAGE_KEYS.includes(e.code) || ['KeyR', 'KeyM', 'KeyC', 'KeyG', 'Escape', 'Enter'].includes(e.code);
+    const known = DRIVE_KEYS.has(e.code) || STAGE_KEYS.includes(e.code) || ['KeyR', 'KeyL', 'KeyM', 'KeyC', 'KeyG', 'Escape', 'Enter'].includes(e.code);
     if (!known) return;
     // The page behind uses the same keys to turn its sheets.
     e.preventDefault();
     e.stopPropagation();
     if (DRIVE_KEYS.has(e.code)) held.add(e.code);
     else if (e.repeat) return;
+    // Stuck off the road, R puts the car back on it; otherwise it starts the run again.
+    else if (e.code === 'KeyR' && canReset(trial)) backOnRoad();
     else if (e.code === 'KeyR' || (e.code === 'Enter' && trial.phase === 'finished')) restart();
+    else if (e.code === 'KeyL') toggleLights();
     else if (e.code === 'KeyM') host.toggleSound();
     else if (e.code === 'KeyC') toggleVoice();
     else if (e.code === 'KeyG') toggleGhost();
@@ -662,7 +705,8 @@ export function startRally(host: RallyHost): Rally {
       lean: calm ? 0 : lean,
       lift: trial.height,
       air: trial.airborne ? Math.max(0, trial.height - groundAt(stage.hazards, trial.progress)) : 0,
-      herd: herdAt(stage, trial.time),
+      animals: creaturesAt(stage, trial.time, trial.woke),
+      lamps: lampStrength(light, lightsOn),
       // The camera stands on the road behind the car, so a jump is seen from the ground.
       eye: { ...eye, height: eye.height + groundAt(stage.hazards, trial.progress - chase.reach) },
       target: { ...target, height: target.height + trial.height * 0.8 },
@@ -783,7 +827,7 @@ export function startRally(host: RallyHost): Rally {
       small = board.note();
     } else if (waiting) {
       big = call ?? '';
-      small = 'Get ready';
+      small = SKIES[light].dark && !lightsOn ? (touch ? 'Get ready · Lights are under Map · sectors' : 'Get ready · L for lights') : 'Get ready';
     } else if (trial.phase === 'ready') {
       big = 'Go';
       small = touch ? 'The clock starts when you press Go' : 'The clock starts when you press Up or W';
@@ -797,6 +841,7 @@ export function startRally(host: RallyHost): Rally {
     callSmall.hidden = small === '';
     // The stages can be changed between runs: before the clock starts, and after the finish.
     stagesEl.hidden = trial.phase === 'running';
+    resetEl.hidden = !canReset(trial);
 
     // The end screen: the medal, a line for the result, the times to beat, and the fan project note.
     const { targets } = current.def;
@@ -839,6 +884,7 @@ export function startRally(host: RallyHost): Rally {
       else if (trial.event === 'knock') burst(26, 6, 0);
       else if (trial.event === 'land') burst(34, 5, 0);
       else if (trial.event === 'scrape' && random() < 0.2) burst(1, 3, 0);
+      else if ((trial.event === 'rattle' || trial.event === 'rumble') && random() < 0.25) burst(1, 2, 0);
       raiseDust(STEP);
       feel(now / 1000);
       if (was === 'running') record(recorder, trial.time, { ...trial.car, height: trial.height });
@@ -857,6 +903,7 @@ export function startRally(host: RallyHost): Rally {
         }
       }
     }
+    callForLights();
     speak(dt);
     flash = Math.max(0, flash - dt);
     if (!flash) sectorEl.hidden = true;

@@ -47,7 +47,7 @@ export function wheelSteer(dx: number, width: number): number {
 }
 
 /** How long a buzz is, in milliseconds, for each thing worth feeling. */
-export const BUZZ = { gear: 12, knock: 40, land: 25 } as const;
+export const BUZZ = { gear: 12, knock: 40, land: 25, rattle: 8, rumble: 6 } as const;
 
 /**
  * How long to buzz, in milliseconds, for what just happened to the car: a knock on a rock or a zebra, a
@@ -56,6 +56,8 @@ export const BUZZ = { gear: 12, knock: 40, land: 25 } as const;
 export function buzzFor(event: string | null, gearBefore: number | 'R', gearAfter: number | 'R'): number {
   if (event === 'knock') return BUZZ.knock;
   if (event === 'land') return BUZZ.land;
+  if (event === 'rattle') return BUZZ.rattle;
+  if (event === 'rumble') return BUZZ.rumble;
   return typeof gearBefore === 'number' && typeof gearAfter === 'number' && gearBefore !== gearAfter ? BUZZ.gear : 0;
 }
 

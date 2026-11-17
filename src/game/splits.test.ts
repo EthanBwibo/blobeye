@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LIGHTS, SKIES, pickLight } from './light';
+import { LIGHTS, SKIES, lampStrength, pickLight } from './light';
 import { CHECKPOINTS, TARGETS, checkpointsOf, formatGap, keepBest, medalFor, parseBestRun, splitGap, verdict, type BestRun } from './splits';
 import { buildStage } from './stage';
 
@@ -79,14 +79,25 @@ describe('medals', () => {
 });
 
 describe('the light', () => {
-  it('is dawn, midday or dusk, each as likely as the others', () => {
+  it('is dawn, midday, dusk or night, each as likely as the others', () => {
     expect(pickLight(0)).toBe('dawn');
-    expect(pickLight(0.34)).toBe('midday');
-    expect(pickLight(0.67)).toBe('dusk');
-    expect(pickLight(0.999999)).toBe('dusk');
-    const counts = { dawn: 0, midday: 0, dusk: 0 };
-    for (let i = 0; i < 300; i++) counts[pickLight(i / 300)]++;
-    expect(counts).toEqual({ dawn: 100, midday: 100, dusk: 100 });
+    expect(pickLight(0.26)).toBe('midday');
+    expect(pickLight(0.51)).toBe('dusk');
+    expect(pickLight(0.76)).toBe('night');
+    expect(pickLight(0.999999)).toBe('night');
+    const counts = { dawn: 0, midday: 0, dusk: 0, night: 0 };
+    for (let i = 0; i < 400; i++) counts[pickLight(i / 400)]++;
+    expect(counts).toEqual({ dawn: 100, midday: 100, dusk: 100, night: 100 });
+  });
+  it('is dark only at night, where the car is lit low and the headlights do the work', () => {
+    expect(LIGHTS.filter((light) => SKIES[light].dark)).toEqual(['night']);
+    expect(SKIES.night.exposure).toBeLessThan(SKIES.dusk.exposure);
+    expect(lampStrength('night', true)).toBe(1);
+    expect(lampStrength('night', false)).toBe(0);
+    // By day the lamps are on, but the sun is brighter: hardly a mark on the road.
+    expect(lampStrength('midday', true)).toBeGreaterThan(0);
+    expect(lampStrength('midday', true)).toBeLessThan(0.1);
+    expect(lampStrength('dusk', false)).toBe(0);
   });
   it('is always one of them, whatever the dice say', () => {
     for (const roll of [1, 7, -1, NaN, Infinity]) expect(LIGHTS).toContain(pickLight(roll));

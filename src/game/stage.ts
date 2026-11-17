@@ -5,7 +5,29 @@
  * The routes are invented. None is a map of a real rally stage.
  */
 import { stepCar, type CarState, type DriveInput } from './handling';
-import { CAR_RADIUS, HAZARDS, KNOCK, LANDING, RAIL_DRAG, RAIL_REACH, WATER_DRAG, groundAt, inWater, roomAt, stepFlight, underAt, zebraAt, type Hazards } from './hazards';
+import {
+  ANIMAL_SIZE,
+  CAR_RADIUS,
+  HAZARDS,
+  KNOCK,
+  LANDING,
+  OSTRICH_WAKE,
+  RAIL_DRAG,
+  RAIL_REACH,
+  WATER_DRAG,
+  animalsAt,
+  branchParts,
+  groundAt,
+  inAnyWater,
+  patchAt,
+  roomAt,
+  stepFlight,
+  surfaceAt,
+  underAt,
+  zebraAt,
+  type Hazards,
+  type Species,
+} from './hazards';
 import { checkpointsOf } from './splits';
 
 export type Spot = readonly [x: number, y: number];
@@ -35,9 +57,25 @@ export interface Stage {
   hazards: Hazards;
   /** The rocks on the road, as places on the ground. */
   rocks: readonly Obstacle[];
+  /** The fallen branches, as solid circles on the ground. */
+  branches: readonly Obstacle[];
+  /** Rumble strips on the outside of the tight corners, where a car runs wide. */
+  kerbs: readonly Kerb[];
   /** Where the split times are taken, as distances along the road. */
   checkpoints: readonly number[];
 }
+
+/** A rumble strip along the edge of the road on `side` (1 is the right), from one distance to another. */
+export interface Kerb {
+  from: number;
+  to: number;
+  side: 1 | -1;
+}
+
+/** How tight a bend, in radians per metre, gets a rumble strip on its outside: a 3 in the pace notes, or tighter. */
+export const KERB_BEND = 0.0115;
+/** How wide a rumble strip is, inside the edge of the road, and how far past the edge it still rumbles. */
+export const KERB_WIDTH = 0.9;
 
 /** Something solid and round on the ground. */
 export interface Obstacle {
@@ -82,21 +120,62 @@ export function buildStage(route: readonly Spot[] = ROUTE, scale = ROUTE_SCALE, 
   // The road carries on a little past the finish, so there is room to stop.
   const road: Road = { points, along, length };
   const [startAt, finishAt] = [12, length - 45];
+  const solid = (part: { along: number; across: number; r: number }): Obstacle => ({ ...placeAt(road, part.along, part.across), r: part.r });
   return {
     ...road,
     halfWidth,
     startAt,
     finishAt,
     hazards,
-    rocks: hazards.rocks.map((rock) => ({ ...placeAt(road, rock.along, rock.across), r: rock.r })),
+    rocks: hazards.rocks.map(solid),
+    branches: (hazards.branches ?? []).flatMap((branch) => branchParts(branch, halfWidth).map(solid)),
+    kerbs: kerbsOf(road, startAt, finishAt),
     checkpoints: checkpointsOf(startAt, finishAt),
   };
+}
+
+/** The rumble strips: wherever the road bends tighter than `KERB_BEND` for 15 metres or more, on the outside. */
+export function kerbsOf(road: Road, from: number, to: number): Kerb[] {
+  const turn = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+  const kerbs: Kerb[] = [];
+  let open: Kerb | null = null;
+  for (let d = from; d <= to; d += 2) {
+    const bend = turn(poseAt(road, d + 10).heading - poseAt(road, d - 10).heading) / 20;
+    // Turning right, the car runs wide to the left.
+    const side = Math.abs(bend) < KERB_BEND ? 0 : bend > 0 ? -1 : 1;
+    if (open && (side !== open.side || d >= to)) {
+      if (open.to - open.from >= 15) kerbs.push(open);
+      open = null;
+    }
+    if (side && !open) open = { from: d, to: d, side };
+    if (open) open.to = d;
+  }
+  return kerbs;
 }
 
 /** The place on the ground that is `along` the road and `across` metres to the right of its middle. */
 export function placeAt(stage: Road, along: number, across: number): Pose {
   const { x, y, heading } = poseAt(stage, along);
   return { x: x - Math.sin(heading) * across, y: y + Math.cos(heading) * across, heading };
+}
+
+/** An animal on the ground, with the way it is facing. */
+export interface Creature extends Obstacle {
+  kind: 'zebra' | Species;
+  heading: number;
+}
+
+/**
+ * Every animal on the stage, as places on the ground, `time` seconds into the run: the zebra and the rest.
+ * `woke` is the run's own record of when each group took fright (see `Trial.woke`).
+ */
+export function creaturesAt(stage: Stage, time: number, woke: readonly (number | null)[] = []): Creature[] {
+  const zebra: Creature[] = herdAt(stage, time).map((z) => ({ ...z, kind: 'zebra' }));
+  const rest = animalsAt(stage.hazards, time, woke, stage.halfWidth).map((spot): Creature => {
+    const { x, y, heading } = placeAt(stage, spot.along, spot.across);
+    return { kind: spot.kind, x, y, r: ANIMAL_SIZE[spot.kind], heading: heading + spot.facing };
+  });
+  return [...zebra, ...rest];
 }
 
 /** The zebra, as places on the ground, `time` seconds into the run. `heading` is the way each is walking. */
@@ -171,6 +250,12 @@ export interface Trial {
   progress: number;
   index: number;
   onRoad: boolean;
+  /** How far the car is from the middle of the road. */
+  offset: number;
+  /** For each group of animals, the clock when it took fright and ran, or null. Only ostrich do. */
+  woke: (number | null)[];
+  /** Seconds the car has been stuck off the road, going nowhere. After `STUCK.seconds` it may be put back on it. */
+  stuck: number;
   /** How high the car is above the flat ground, and how fast that is changing. */
   height: number;
   rise: number;
@@ -182,9 +267,12 @@ export interface Trial {
   wet: boolean;
   /** The clock at each checkpoint passed so far. */
   splits: number[];
-  /** What happened on the last step, for the dust and the spray. */
-  event: 'splash' | 'knock' | 'scrape' | 'land' | null;
+  /** What happened on the last step, for the dust and the spray: and `rattle` over a cattle grid, `rumble` on a rumble strip, `reset` when put back on the road. */
+  event: 'splash' | 'knock' | 'scrape' | 'land' | 'rattle' | 'rumble' | 'reset' | null;
 }
+
+/** Off the road and slower than `speed` m/s for `seconds`, the car is stuck, and may be put back on the road. */
+export const STUCK = { speed: 3, seconds: 2 } as const;
 
 export function newTrial(stage: Stage): Trial {
   const { x, y, heading } = poseAt(stage, stage.startAt);
@@ -196,6 +284,9 @@ export function newTrial(stage: Stage): Trial {
     progress: stage.startAt,
     index,
     onRoad: true,
+    offset: 0,
+    woke: (stage.hazards.animals ?? []).map(() => null),
+    stuck: 0,
     height: groundAt(stage.hazards, stage.startAt),
     rise: 0,
     airborne: false,
@@ -246,13 +337,18 @@ export function stepTrial(stage: Stage, trial: Trial, input: DriveInput, dt: num
     // In the air the car goes where it was going.
     trial.car = { ...trial.car, x: trial.car.x + trial.car.vx * dt, y: trial.car.y + trial.car.vy * dt };
   } else {
-    let car = stepCar(trial.car, drive, dt, trial.onRoad);
+    let car = stepCar(trial.car, drive, dt, surfaceAt(hazards, trial.progress, trial.offset, stage.halfWidth));
     if (trial.wet) {
       const keep = Math.exp(-WATER_DRAG * dt);
       car = { ...car, vx: car.vx * keep, vy: car.vy * keep };
     }
-    const herd = hazards.zebra.count && Math.abs(trial.progress - hazards.zebra.at) < 40 ? herdAt(stage, trial.time) : [];
-    for (const thing of [...stage.rocks, ...herd]) {
+    // Only the animals near the car are looked at. None of them ends a run: they knock the car aside and slow it.
+    const near = (at: number) => Math.abs(trial.progress - at) < 60;
+    const animals = hazards.zebra.count && near(hazards.zebra.at) ? herdAt(stage, trial.time) : [];
+    if ((hazards.animals ?? []).some((group) => near(group.at) || (group.kind === 'ostrich' && trial.progress > group.at && trial.progress < group.to + 20))) {
+      animals.push(...creaturesAt({ ...stage, hazards: { ...hazards, zebra: { ...hazards.zebra, count: 0 } } }, trial.time, trial.woke));
+    }
+    for (const thing of [...stage.rocks, ...stage.branches, ...animals]) {
       const hit = bump(car, thing);
       if (!hit) continue;
       car = hit.car;
@@ -280,9 +376,29 @@ export function stepTrial(stage: Stage, trial: Trial, input: DriveInput, dt: num
     found = { ...found, across: side * room, offset: room };
     trial.event = 'scrape';
   }
+  const before = patchAt(hazards, trial.progress);
   trial.index = found.index;
   trial.progress = found.along;
+  trial.offset = found.offset;
   trial.onRoad = found.offset <= stage.halfWidth;
+  const speed = Math.hypot(trial.car.vx, trial.car.vy);
+
+  // What the road does under the wheels: a washout jars the car, a grid rattles, a rumble strip rumbles.
+  const patch = trial.airborne || !trial.onRoad ? null : patchAt(hazards, found.along);
+  if (!trial.event && patch && speed > 3) {
+    if (patch.kind === 'washout' && before?.kind !== 'washout' && speed > 12) trial.event = 'knock';
+    else if (patch.kind === 'grid') trial.event = 'rattle';
+  }
+  if (!trial.event && !trial.airborne && speed > 3 && onKerb(stage, found.along, found.across)) trial.event = 'rumble';
+
+  // Ostrich take fright as the car comes up behind them, and run.
+  (hazards.animals ?? []).forEach((group, g) => {
+    if (group.kind === 'ostrich' && trial.woke[g] === null && trial.phase === 'running' && found.along >= group.at - OSTRICH_WAKE) trial.woke[g] = trial.time;
+  });
+
+  // Off the road and going nowhere: after a moment, the car may be put back on it.
+  const stuck = trial.phase === 'running' && !trial.airborne && !trial.onRoad && speed < STUCK.speed;
+  trial.stuck = stuck ? trial.stuck + dt : 0;
 
   // The crest: the car follows the road up, and leaves it if the road falls away too fast.
   const flight = stepFlight(trial, underAt(hazards, found.along), Math.hypot(trial.car.vx, trial.car.vy), dt);
@@ -297,7 +413,7 @@ export function stepTrial(stage: Stage, trial: Trial, input: DriveInput, dt: num
   }
   if (!trial.airborne) trial.aloft = 0;
 
-  const wet = !trial.airborne && trial.onRoad && inWater(hazards, found.along);
+  const wet = !trial.airborne && trial.onRoad && inAnyWater(hazards, found.along);
   if (wet && !trial.wet && Math.hypot(trial.car.vx, trial.car.vy) > 5) trial.event = 'splash';
   trial.wet = wet;
 
@@ -306,6 +422,48 @@ export function stepTrial(stage: Stage, trial: Trial, input: DriveInput, dt: num
     while (trial.splits.length < stage.checkpoints.length && found.along >= stage.checkpoints[trial.splits.length]!) trial.splits.push(trial.time);
     if (found.along >= stage.finishAt) trial.phase = 'finished';
   }
+}
+
+/** Whether the car is on a rumble strip: inside the edge of the road on the outside of a tight corner, or just past it. */
+export function onKerb(stage: Stage, along: number, across: number): boolean {
+  const out = Math.abs(across) - stage.halfWidth;
+  if (out < -KERB_WIDTH || out > 0.3) return false;
+  return stage.kerbs.some((kerb) => along >= kerb.from && along <= kerb.to && Math.sign(across) === kerb.side);
+}
+
+/** Whether a stuck car may be put back on the road now. */
+export function canReset(trial: Trial): boolean {
+  return trial.phase === 'running' && trial.stuck >= STUCK.seconds;
+}
+
+/**
+ * Put the car back on the road, stopped and facing up it, level with where it left. The clock keeps
+ * running, so the time it lost is its own. It is put down clear of anything solid: the middle of the road
+ * if that is free, or the nearest place across it that is.
+ */
+export function resetToRoad(stage: Stage, trial: Trial): void {
+  const along = Math.min(stage.finishAt - 1, Math.max(stage.startAt, trial.progress));
+  const solid = [...stage.rocks, ...stage.branches];
+  const clear = (x: number, y: number) => solid.every((thing) => Math.hypot(x - thing.x, y - thing.y) > thing.r + CAR_RADIUS + 0.5);
+  const tries = [0, -2, 2, -4, 4].filter((across) => Math.abs(across) < stage.halfWidth - CAR_RADIUS);
+  const across = tries.find((a) => {
+    const p = placeAt(stage, along, a);
+    return clear(p.x, p.y);
+  }) ?? 0;
+  const { x, y, heading } = placeAt(stage, along, across);
+  trial.car = { x, y, heading, vx: 0, vy: 0 };
+  const found = locate(stage, x, y, trial.index);
+  trial.index = found.index;
+  trial.progress = found.along;
+  trial.offset = found.offset;
+  trial.onRoad = true;
+  trial.height = groundAt(stage.hazards, found.along);
+  trial.rise = 0;
+  trial.airborne = false;
+  trial.aloft = 0;
+  trial.wet = false;
+  trial.stuck = 0;
+  trial.event = 'reset';
 }
 
 /** Whether a time beats the one on record. */

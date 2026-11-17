@@ -1,10 +1,14 @@
 /**
- * What lies in wait along a stage: rocks on the road, a ford, a narrow bridge, zebra crossing, and crests.
+ * What lies in wait along a stage: rocks on the road, a ford, a narrow bridge, zebra crossing, crests,
+ * stretches of sand, mud, washout, a cattle grid or a splash, fallen branches, and other animals: giraffe,
+ * warthogs, ostrich and flamingos.
  * Pure functions in road coordinates: `along` is metres along the road and `across` is metres to the right
  * of its middle. `stage.ts` turns these into places on the ground and applies them to the car.
  *
  * The hazards are invented, like the route. The numbers are tuned for feel.
  */
+
+import { SURFACES, blendSurface, type Surface } from './handling';
 
 export interface Rock {
   along: number;
@@ -24,7 +28,48 @@ export interface Hazards {
   zebra: { at: number; count: number; gap: number; span: number; pace: number; r: number };
   /** Humps in the road, in the order they come, none overlapping. Taken fast, the car flies. */
   crests: readonly Crest[];
+  /** Stretches of the road that are not plain murram. Optional: a stage without any leaves it out. */
+  patches?: readonly Patch[];
+  /** Fallen branches lying out from the edge of the road. */
+  branches?: readonly Branch[];
+  /** Animals other than the zebra. */
+  animals?: readonly Animals[];
 }
+
+/** What a stretch of road is, besides plain murram. */
+export type PatchKind = 'sand' | 'mud' | 'washout' | 'grid' | 'splash';
+
+/** A stretch of road from one distance to another, all the way across. */
+export interface Patch {
+  kind: PatchKind;
+  from: number;
+  to: number;
+}
+
+/** A fallen acacia branch: it lies from the edge of the road on `side` (1 is the right), `reach` metres in. */
+export interface Branch {
+  along: number;
+  side: 1 | -1;
+  reach: number;
+}
+
+export type Species = 'giraffe' | 'warthog' | 'ostrich' | 'flamingo';
+
+/**
+ * A group of animals of one kind:
+ * - giraffe cross the road slowly, out to `span / 2` either side and back, `gap` metres apart, like the zebra;
+ * - warthogs dart across, `span` from side to side at `pace`, once every `every` seconds, then wait off the road;
+ * - ostrich stand `out` metres off the edge on `side` until the car comes near, then run beside the road from `at` to `to`;
+ * - flamingos stand in the water beside the road on `side`, and do not move.
+ */
+export type Animals =
+  | { kind: 'giraffe'; at: number; count: number; gap: number; span: number; pace: number }
+  | { kind: 'warthog'; at: number; count: number; span: number; pace: number; every: number }
+  | { kind: 'ostrich'; at: number; to: number; count: number; side: 1 | -1; out: number; pace: number }
+  | { kind: 'flamingo'; at: number; count: number; side: 1 | -1 };
+
+/** How big each kind is on the ground, as a circle the car can hit. */
+export const ANIMAL_SIZE: Record<Species, number> = { giraffe: 1.3, warthog: 0.55, ostrich: 0.6, flamingo: 0.35 };
 
 /** A hump in the road, `height` at its top and `reach` metres long each side. */
 export interface Crest {
@@ -51,6 +96,16 @@ export const HAZARDS: Hazards = {
   bridge: { from: 950, to: 978, taper: 26, half: 2.5 },
   zebra: { at: 1108, count: 5, gap: 9, span: 64, pace: 2.6, r: 1.1 },
   crests: [{ at: 1700, reach: 20, height: 1.4 }],
+  // The lake shore is wet: mud on the way down to the ford.
+  patches: [{ kind: 'mud', from: 520, to: 546 }],
+  // On the outside of the long right after the ford: run wide and it is waiting.
+  branches: [{ along: 860, side: -1, reach: 3.2 }],
+  animals: [
+    // Standing in the shallows beside the ford, on the left.
+    { kind: 'flamingo', at: 556, count: 9, side: -1 },
+    // Two giraffe crossing slowly before the crest.
+    { kind: 'giraffe', at: 1632, count: 2, gap: 16, span: 40, pace: 1.1 },
+  ],
 };
 
 /** A stage with nothing on it, for tests of the bare road. */
@@ -60,6 +115,9 @@ export const NO_HAZARDS: Hazards = {
   bridge: NO_BRIDGE,
   zebra: NO_ZEBRA,
   crests: [],
+  patches: [],
+  branches: [],
+  animals: [],
 };
 
 export const GRAVITY = 9.81;
@@ -167,4 +225,100 @@ export function stepFlight(flight: Flight, under: Ground, pace: number, dt: numb
   const height = flight.height + flight.rise * dt - (GRAVITY * dt * dt) / 2;
   if (height > under.height) return { height, rise: flight.rise - GRAVITY * dt, airborne: true, landed: false };
   return { ...grounded, landed: true };
+}
+
+/** The stretch of road at a distance along it, or null on plain murram. */
+export function patchAt(hazards: Hazards, along: number): Patch | null {
+  return hazards.patches?.find((p) => along >= p.from && along <= p.to) ?? null;
+}
+
+/**
+ * Off the road: the grass verge starts `blend` metres past the edge and runs `grass` metres out; then the
+ * bush, which takes `into` metres to reach. Grip falls away by degrees, so running wide is a mistake, not a wall.
+ */
+export const VERGE = { blend: 2, grass: 4, into: 8 } as const;
+
+/** What the tyres are on, at a distance along the road and `offset` metres from its middle. */
+export function surfaceAt(hazards: Hazards, along: number, offset: number, halfWidth: number): Surface {
+  const patch = patchAt(hazards, along);
+  const road: Surface = patch && patch.kind !== 'splash' ? SURFACES[patch.kind] : SURFACES.murram;
+  const out = offset - halfWidth;
+  if (out <= 0) return road;
+  const verge = blendSurface(road, SURFACES.grass, out / VERGE.blend);
+  return blendSurface(verge, SURFACES.bush, (out - VERGE.grass) / VERGE.into);
+}
+
+/** Whether the car is in water: the ford, or a splash. */
+export function inAnyWater(hazards: Hazards, along: number): boolean {
+  return inWater(hazards, along) || patchAt(hazards, along)?.kind === 'splash';
+}
+
+/** A branch as solid circles on the road, in road coordinates: from the edge inward, angled a little along it. */
+export function branchParts(branch: Branch, halfWidth: number): Rock[] {
+  const parts: Rock[] = [];
+  const count = Math.max(2, Math.ceil(branch.reach / 0.6));
+  for (let i = 0; i <= count; i++) {
+    const t = i / count;
+    // Thick at the butt by the verge, thin at the tip on the road.
+    parts.push({ along: branch.along + t * branch.reach * 0.35, across: branch.side * (halfWidth + 0.6 - t * (branch.reach + 0.6)), r: 0.42 - t * 0.17 });
+  }
+  return parts;
+}
+
+/** One animal, in road coordinates. `facing` is the way it looks, in radians from straight up the road; positive turns right. */
+export interface AnimalSpot {
+  kind: Species;
+  along: number;
+  across: number;
+  facing: number;
+}
+
+/** A number from 0 up to 1 for each `i`, the same every time: for spreading a flock about. */
+const hash = (i: number, salt: number) => {
+  const v = Math.sin(i * 127.1 + salt * 311.7) * 43758.5453;
+  return v - Math.floor(v);
+};
+
+/** Ostrich take off when the car comes within this many metres of where they stand. */
+export const OSTRICH_WAKE = 70;
+
+/**
+ * Where every animal other than the zebra is, `time` seconds into the run. `woke` holds, for each group, the
+ * clock when it was startled into running (only ostrich wait for that), or null. Like the zebra, they are the
+ * same on every run, so they can be learned.
+ */
+export function animalsAt(hazards: Hazards, time: number, woke: readonly (number | null)[], halfWidth: number): AnimalSpot[] {
+  const spots: AnimalSpot[] = [];
+  (hazards.animals ?? []).forEach((group, g) => {
+    for (let i = 0; i < group.count; i++) {
+      if (group.kind === 'giraffe') {
+        const walked = time * group.pace - i * group.gap;
+        const lap = ((walked % (group.span * 2)) + group.span * 2) % (group.span * 2);
+        const out = lap < group.span;
+        spots.push({ kind: 'giraffe', along: group.at + i * 3.5, across: out ? lap - group.span / 2 : group.span * 1.5 - lap, facing: out ? Math.PI / 2 : -Math.PI / 2 });
+      } else if (group.kind === 'warthog') {
+        // Each goes a moment after the one in front, in a line.
+        const own = time - i * 0.35 + group.every * 1000;
+        const round = Math.floor(own / group.every);
+        const way = round % 2 ? 1 : -1;
+        const into = Math.min(group.span, (own - round * group.every) * group.pace);
+        spots.push({ kind: 'warthog', along: group.at + i * 1.4, across: way * (into - group.span / 2), facing: (way * Math.PI) / 2 });
+      } else if (group.kind === 'ostrich') {
+        const start = woke[g] ?? null;
+        const run = start === null ? 0 : Math.max(0, time - start) * group.pace;
+        const along = Math.min(group.to, group.at + run) + i * 3;
+        // They weave a little as they run.
+        const sway = start === null ? 0 : Math.sin(along * 0.18 + i) * 0.6;
+        spots.push({ kind: 'ostrich', along, across: group.side * (halfWidth + group.out + i * 1.6) + sway, facing: 0 });
+      } else {
+        spots.push({
+          kind: 'flamingo',
+          along: group.at + (hash(i, 1) - 0.5) * 22,
+          across: group.side * (halfWidth + 3 + hash(i, 2) * 14),
+          facing: hash(i, 3) * Math.PI * 2,
+        });
+      }
+    }
+  });
+  return spots;
 }

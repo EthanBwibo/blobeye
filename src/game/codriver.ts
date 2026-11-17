@@ -95,3 +95,11 @@ export function stepWrongWay(state: WrongWay, angle: number, dt: number): WrongW
   const shown = state.shown || time > WRONG_WAY.after;
   return { for: time, shown, began: shown && !state.shown };
 }
+
+/** The co-driver asks for the lights this long into the count, so the call is not lost in the cut to the stage. */
+export const LIGHTS_CALL_AFTER = 0.5;
+
+/** Whether to call "Lights!": on a night run, with them off, once, early in the count. */
+export function wantsLights(dark: boolean, lightsOn: boolean, alreadyAsked: boolean, waited: number): boolean {
+  return dark && !lightsOn && !alreadyAsked && waited >= LIGHTS_CALL_AFTER;
+}

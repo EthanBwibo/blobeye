@@ -68,9 +68,19 @@ const HELLS_GATE: StageDef = {
     bridge: { from: 880, to: 902, taper: 18, half: 2.4 },
     zebra: NO_ZEBRA,
     crests: [],
+    patches: [
+      // Loose sand in two of the tight corners, where it hurts most.
+      { kind: 'sand', from: 200, to: 262 },
+      { kind: 'sand', from: 1062, to: 1112 },
+      // Where a flood went through: ruts and holes across the road.
+      { kind: 'washout', from: 760, to: 774 },
+    ],
+    branches: [{ along: 1290, side: 1, reach: 2 }],
+    // A family of warthogs, tails up, across the road and back.
+    animals: [{ kind: 'warthog', at: 1000, count: 3, span: 18, pace: 7, every: 6 }],
   },
-  // Set like Naivasha's against the tests' scripted driver, which takes about 65 seconds here.
-  targets: { gold: 63, silver: 69, bronze: 78 },
+  // Set like Naivasha's against the tests' scripted driver, which takes about 67 seconds here, sand and washout included.
+  targets: { gold: 65, silver: 71, bronze: 80 },
   bush: { density: 0.8, trees: 0.03, rocks: 0.22, seed: 1977 },
 };
 
@@ -86,7 +96,12 @@ const SOYSAMBU: StageDef = {
   scale: 0.85,
   halfWidth: 8,
   hazards: {
-    rocks: [],
+    // A field of rocks on the left at the end of the long left.
+    rocks: [
+      { along: 2010, across: -5.6, r: 0.9 },
+      { along: 2016, across: -4.3, r: 0.7 },
+      { along: 2023, across: -5.2, r: 0.8 },
+    ],
     water: NO_WATER,
     bridge: NO_BRIDGE,
     // Everything is on a straight: the long one out of the start, the one after the long right, and the last.
@@ -96,9 +111,19 @@ const SOYSAMBU: StageDef = {
       { at: 1550, reach: 20, height: 1.5 },
       { at: 2170, reach: 22, height: 1.4 },
     ],
+    patches: [
+      // Where the road crosses from one paddock to the next.
+      { kind: 'grid', from: 1000, to: 1004 },
+      { kind: 'splash', from: 1700, to: 1712 },
+      { kind: 'sand', from: 2240, to: 2300 },
+    ],
+    animals: [
+      // A pair waiting on the verge, who race the car along the straight once it comes near.
+      { kind: 'ostrich', at: 1340, to: 1520, count: 2, side: 1, out: 3, pace: 17 },
+    ],
   },
-  // Set like Naivasha's against the tests' scripted driver, which takes about 77 seconds here, a herd of zebra included.
-  targets: { gold: 75, silver: 82, bronze: 92 },
+  // Set like Naivasha's against the tests' scripted driver, which takes about 78 seconds here, the zebra, the grid, the splash and the sand included.
+  targets: { gold: 76, silver: 83, bronze: 93 },
   bush: { density: 0.55, trees: 0.04, rocks: 0.02, seed: 1959 },
 };
 

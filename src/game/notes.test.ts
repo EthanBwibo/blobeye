@@ -89,9 +89,18 @@ describe('the pace notes', () => {
 
   it('are in the order they come, and everything else is a corner', () => {
     expect(notes.map((n) => n.at)).toEqual([...notes.map((n) => n.at)].sort((a, b) => a - b));
-    const hazards = ['Water!', 'Crest, keep it flat', 'Narrow bridge', 'Caution, zebra!', 'Rocks on the right, keep left'];
+    const hazards = [
+      'Water!',
+      'Crest, keep it flat',
+      'Narrow bridge',
+      'Caution, zebra!',
+      'Rocks on the right, keep left',
+      'Mud, slippery',
+      'Branch on the left, keep right',
+      'Caution, giraffe!',
+    ];
     for (const text of texts) if (!hazards.includes(text)) expect(text).toMatch(CORNER);
-    expect(texts.filter((t) => hazards.includes(t))).toHaveLength(5);
+    expect(texts.filter((t) => hazards.includes(t))).toHaveLength(hazards.length);
   });
 
   it('have nothing but corners to call on a bare stage', () => {

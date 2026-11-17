@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HANDLING, carSpeeds, engineRpm, stepCar, type CarState, type DriveInput } from './handling';
+import { HANDLING, SURFACES, carSpeeds, engineRpm, stepCar, type CarState, type DriveInput } from './handling';
 import { buildStage, formatTime, isNewBest, locate, newTrial, poseAt, stepTrial, type Stage, type Trial } from './stage';
 import { CHASE, START, chaseAim, chaseFov, chaseView, countdown, newChase, stepChase, turnBetween } from './chase';
 import { RUN_OUT, growScenery, roadFrame } from './scenery';
@@ -38,7 +38,7 @@ describe('handling', () => {
 
   it('is slow off the road', () => {
     const car = drive(still, { throttle: 1 }, 20, false);
-    expect(Math.hypot(car.vx, car.vy)).toBeLessThan(HANDLING.roughTopSpeed);
+    expect(Math.hypot(car.vx, car.vy)).toBeLessThan(SURFACES.bush.top);
   });
 
   it('brakes hard, and reverses if the brake is held at a standstill', () => {

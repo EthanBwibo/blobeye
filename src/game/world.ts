@@ -15,11 +15,11 @@ import { createCar } from '../scene/carScene';
 import { lightStudio } from '../scene/studio';
 import type { Place } from './chase';
 import type { CarState } from './handling';
-import { groundAt, roomAt } from './hazards';
+import { VERGE, branchParts, groundAt, roomAt, type Species } from './hazards';
 import { SKIES, type Light } from './light';
 import { NAIVASHA_BUSH, RUN_OUT, growScenery, roadFrame, scatter, type BushMix } from './scenery';
 import type { GhostPose } from './ghost';
-import type { Stage } from './stage';
+import { KERB_WIDTH, placeAt, type Stage } from './stage';
 
 /** The car is drawn this long, in metres. */
 export const CAR_LENGTH = 4.6;
@@ -58,8 +58,10 @@ export interface View {
   lift: number;
   /** How far the wheels are off the road, in metres: 0 except in a jump. The shadow stays on the road. */
   air: number;
-  /** Where each zebra is on the ground, and the way it is walking. */
-  herd: readonly { x: number; y: number; heading: number }[];
+  /** Where each animal is on the ground, and the way it is facing. */
+  animals: readonly { kind: 'zebra' | Species; x: number; y: number; heading: number }[];
+  /** How strongly the headlights light the way: 0 is off, 1 is full beam at night. */
+  lamps: number;
   eye: Place;
   target: Place;
   /** The lens, in degrees. */
@@ -88,6 +90,66 @@ export interface World {
   mostDust: number;
   /** Let go of the graphics memory. The world cannot be drawn again. */
   dispose(): void;
+}
+
+/**
+ * The headlights: where they are, which way they point, and how strongly they shine. One set of uniforms,
+ * shared by every material they fall on, so moving the car moves the beams everywhere at once.
+ */
+const lamp = {
+  lampOn: { value: 0 },
+  lampAt: { value: new THREE.Vector3() },
+  lampAhead: { value: new THREE.Vector2(1, 0) },
+};
+
+/**
+ * Two beams from the nose, spreading as they go and fading out by about 95 metres, with a pool of light
+ * round the front of the car. They light what stands in them up to about head height: the road, the
+ * bush, the animals and the markers. Returns how much brighter a place is: 0 is untouched.
+ */
+const LAMP_GLSL = `
+  varying vec3 vLampWorld;
+  uniform float lampOn;
+  uniform vec3 lampAt;
+  uniform vec2 lampAhead;
+  float lampGlow() {
+    if (lampOn <= 0.0) return 0.0;
+    vec2 d = vLampWorld.xz - lampAt.xz;
+    float ahead = dot(d, lampAhead);
+    float side = dot(d, vec2(-lampAhead.y, lampAhead.x));
+    float tall = 1.0 - smoothstep(2.5, 6.0, vLampWorld.y - lampAt.y);
+    float pool = (1.0 - smoothstep(1.5, 6.0, length(d))) * step(-1.5, ahead) * 0.55;
+    if (ahead < 0.3) return lampOn * pool * tall;
+    float beam = 0.0;
+    for (int i = 0; i < 2; i++) {
+      float off = i == 0 ? -0.75 : 0.75;
+      float s = (side - off * (1.0 + ahead * 0.015)) / (ahead * 0.3 + 0.7);
+      beam = max(beam, exp(-s * s * 2.4));
+    }
+    float reach = (1.0 - smoothstep(25.0, 95.0, ahead)) * smoothstep(0.3, 5.0, ahead);
+    return lampOn * max(pool, beam * reach) * tall;
+  }
+`;
+
+/** Have the headlights light a flat material: it is drawn this many times brighter where they fall, at most. */
+function litByLamps<M extends THREE.Material>(material: M, gain = 3.2): M {
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, lamp);
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vLampWorld;').replace(
+      '#include <project_vertex>',
+      `#include <project_vertex>
+      vec4 lampWorld = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        lampWorld = instanceMatrix * lampWorld;
+      #endif
+      vLampWorld = (modelMatrix * lampWorld).xyz;`,
+    );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\n${LAMP_GLSL}`)
+      .replace('#include <opaque_fragment>', `outgoingLight *= 1.0 + lampGlow() * ${gain.toFixed(2)};\n#include <opaque_fragment>`);
+  };
+  material.customProgramCacheKey = () => `lamps-${gain}`;
+  return material;
 }
 
 /** Where the light comes from, for the shading baked into the simple shapes, and where the sun hangs in the sky. */
@@ -155,13 +217,66 @@ function joined(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return geometry;
 }
 
+/** A box `long` along x, `tall` and `wide`, tipped by `tilt` about z and moved to x, y, z. The animals are made of these. */
+const box = (long: number, tall: number, wide: number, x: number, y: number, z = 0, tilt = 0): THREE.BufferGeometry => {
+  const shape = new THREE.BoxGeometry(long, tall, wide);
+  if (tilt) shape.rotateZ(tilt);
+  return shape.translate(x, y, z);
+};
+
+/** Each animal as two parts, each in one colour: its body (`pale`) and its markings (`dark`). All face along +x and stand on the ground. */
+type AnimalShape = { pale: THREE.BufferGeometry; dark: THREE.BufferGeometry };
+
+/** A giraffe: tall on long legs, its neck reaching up and forward, with brown patches and a dark mane. */
+function giraffeShapes(): AnimalShape {
+  const pale = [box(1.7, 0.8, 0.62, 0, 2.15, 0, 0.12), box(0.34, 1.9, 0.3, 0.95, 3.25, 0, -0.42), box(0.62, 0.3, 0.3, 1.45, 4.15, 0, -0.25)];
+  const dark = [box(0.06, 1.7, 0.08, 0.82, 3.3, 0, -0.42), box(0.06, 0.25, 0.06, 1.3, 4.42, 0.08), box(0.06, 0.25, 0.06, 1.3, 4.42, -0.08), box(0.05, 0.9, 0.05, -0.88, 1.85, 0, 0.3)];
+  for (const x of [-0.62, 0.62]) {
+    for (const z of [-0.2, 0.2]) {
+      pale.push(box(0.14, 1.85, 0.14, x, 0.92, z));
+      dark.push(box(0.16, 0.12, 0.16, x, 0.06, z));
+    }
+  }
+  // The patches: squares a little proud of the body and the neck.
+  for (const [x, y] of [[-0.5, 2.3], [0, 2.4], [0.45, 2.25], [-0.25, 2.0], [0.25, 1.95]] as const) dark.push(box(0.36, 0.3, 0.66, x, y));
+  for (const [x, y] of [[0.78, 2.75], [0.98, 3.25], [1.15, 3.7]] as const) dark.push(box(0.2, 0.26, 0.34, x, y, 0, -0.42));
+  return { pale: shaded(joined(pale)), dark: shaded(joined(dark)) };
+}
+
+/** A warthog: low and barrel-bodied, a long head with pale tusks, a bristly mane and its tail held straight up. */
+function warthogShapes(): AnimalShape {
+  const pale = [box(1.0, 0.5, 0.48, 0, 0.55, 0), box(0.46, 0.34, 0.36, 0.66, 0.5, 0, -0.25)];
+  const dark = [box(0.7, 0.1, 0.12, -0.05, 0.84), box(0.04, 0.4, 0.04, -0.52, 0.95, 0, -0.15), box(0.16, 0.18, 0.2, 0.92, 0.38, 0, -0.25)];
+  for (const z of [-0.14, 0.14]) pale.push(box(0.16, 0.05, 0.05, 0.96, 0.5, z, 0.6));
+  for (const x of [-0.34, 0.34]) for (const z of [-0.15, 0.15]) dark.push(box(0.1, 0.32, 0.1, x, 0.16, z));
+  return { pale: shaded(joined(pale)), dark: shaded(joined(dark)) };
+}
+
+/** An ostrich: a black body of feathers with a white tail, on long bare legs, with a long bare neck. */
+function ostrichShapes(): AnimalShape {
+  const dark = [box(0.95, 0.62, 0.62, 0, 1.3, 0, 0.1), box(0.5, 0.42, 0.66, -0.15, 1.12, 0)];
+  const pale = [box(0.12, 1.15, 0.12, 0.42, 2.05, 0, -0.18), box(0.26, 0.16, 0.16, 0.56, 2.66), box(0.3, 0.3, 0.5, -0.56, 1.42, 0, 0.5)];
+  for (const z of [-0.14, 0.14]) pale.push(box(0.1, 1.1, 0.1, 0.05, 0.55, z), box(0.26, 0.06, 0.12, 0.12, 0.03, z));
+  return { pale: shaded(joined(pale)), dark: shaded(joined(dark)) };
+}
+
+/** A flamingo: pink, on one thin leg, with its neck in an S and a dark tip to its beak. */
+function flamingoShapes(): AnimalShape {
+  const pale = [
+    box(0.56, 0.3, 0.28, 0, 1.02, 0, 0.15),
+    box(0.08, 0.42, 0.08, 0.26, 1.32, 0, -0.5),
+    box(0.08, 0.34, 0.08, 0.3, 1.66, 0, 0.45),
+    box(0.16, 0.1, 0.1, 0.3, 1.86),
+    box(0.06, 0.9, 0.06, 0, 0.45),
+    // The other leg, tucked up
+    box(0.05, 0.3, 0.05, 0.05, 0.72, 0.06, 1.2),
+  ];
+  const dark = [box(0.14, 0.06, 0.06, 0.44, 1.81, 0, 0.6), box(0.2, 0.12, 0.3, -0.24, 1.08, 0, 0.2)];
+  return { pale: shaded(joined(pale)), dark: shaded(joined(dark)) };
+}
+
 /** A zebra from a few boxes, facing along +x and standing on the ground: its pale parts, and its dark ones. */
-function zebraShapes(): { pale: THREE.BufferGeometry; dark: THREE.BufferGeometry } {
-  const box = (long: number, tall: number, wide: number, x: number, y: number, z = 0, tilt = 0): THREE.BufferGeometry => {
-    const shape = new THREE.BoxGeometry(long, tall, wide);
-    if (tilt) shape.rotateZ(tilt);
-    return shape.translate(x, y, z);
-  };
+function zebraShapes(): AnimalShape {
   // Body, neck and head
   const pale = [box(1.5, 0.6, 0.48, 0, 1.08), box(0.3, 0.7, 0.26, 0.78, 1.5, 0, -0.5), box(0.46, 0.24, 0.24, 1.08, 1.8, 0, -0.35)];
   // Muzzle, mane and tail
@@ -282,13 +397,15 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
   scene.fog = fog;
   const camera = new THREE.PerspectiveCamera(58, 1, 0.5, 2600);
 
-  const flat = (options: THREE.MeshBasicMaterialParameters = {}) => new THREE.MeshBasicMaterial(options);
+  /** A flat colour, lit by the headlights where they fall. The sky and the hills are too far away for them. */
+  const flat = (options: THREE.MeshBasicMaterialParameters = {}) => litByLamps(new THREE.MeshBasicMaterial(options));
+  const far = (options: THREE.MeshBasicMaterialParameters = {}) => new THREE.MeshBasicMaterial(options);
   /** Painted on the ground: drawn first, in order, and never in the way of anything standing on it. */
   const ground = (options: THREE.MeshBasicMaterialParameters = {}) => flat({ depthWrite: false, side: THREE.DoubleSide, ...options });
   const mat = {
     sky: skyMaterial(),
-    farHills: flat({ fog: false, depthWrite: false, side: THREE.DoubleSide }),
-    nearHills: flat({ fog: false, depthWrite: false, side: THREE.DoubleSide }),
+    farHills: far({ fog: false, depthWrite: false, side: THREE.DoubleSide }),
+    nearHills: far({ fog: false, depthWrite: false, side: THREE.DoubleSide }),
     savannah: ground(),
     verge: ground(),
     road: ground(),
@@ -310,6 +427,26 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
     rail: flat({ side: THREE.DoubleSide }),
     zebra: flat({ vertexColors: true }),
     stripe: flat({ vertexColors: true }),
+    giraffe: flat({ vertexColors: true }),
+    giraffePatch: flat({ vertexColors: true }),
+    warthog: flat({ vertexColors: true }),
+    warthogDark: flat({ vertexColors: true }),
+    ostrich: flat({ vertexColors: true }),
+    ostrichPale: flat({ vertexColors: true }),
+    flamingo: flat({ vertexColors: true }),
+    flamingoDark: flat({ vertexColors: true }),
+    grass: ground(),
+    sand: ground(),
+    sandRipple: ground({ transparent: true, opacity: 0.35 }),
+    mud: ground(),
+    puddle: ground({ transparent: true, opacity: 0.55 }),
+    steel: flat({ side: THREE.DoubleSide }),
+    kerbRed: ground(),
+    kerbWhite: ground(),
+    marker: flat({ vertexColors: true }),
+    // The reflectors on the markers: they flash back at the headlights.
+    reflector: litByLamps(new THREE.MeshBasicMaterial(), 9),
+    wire: new THREE.LineBasicMaterial(),
     dust: dustMaterial(),
   };
   let layer = -30;
@@ -344,6 +481,8 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
   for (const crest of crests) {
     if (crest.height > 0) backdrop(lay(crest.at - crest.reach, crest.at + crest.reach, [[-half - 10, 0], [-half - 0.9, 0], [half + 0.9, 0], [half + 10, 0]], 2), mat.savannah);
   }
+  // The grass verge: where the grip starts to go (see `VERGE` in hazards.ts).
+  backdrop(joined([lay(from, to, across(-half - VERGE.grass - 1, -half - 0.6)), lay(from, to, across(half + 0.6, half + VERGE.grass + 1))]), mat.grass);
   backdrop(lay(from, to, across(-half - 0.9, half + 0.9)), mat.verge);
   backdrop(lay(from, to, across(-half, half)), mat.road);
   // Start line, and a chequered finish
@@ -364,6 +503,52 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
   for (const side of [-1, 1]) ruts.push(lay(from, to, across(side * 1.9 - 0.35, side * 1.9 + 0.35)));
   backdrop(joined(ruts), mat.ruts);
 
+  // --- Stretches of the road that are not plain murram
+  const patches = hazards.patches ?? [];
+  const random = scatter(stage.points.length * 7 + 3);
+  for (const patch of patches) {
+    const { kind, from: a, to: b } = patch;
+    if (kind === 'sand') {
+      // Drifted over the road, its edges ragged, with ripples the wind left.
+      backdrop(lay(a - 3, b + 3, across(-half - 0.6, half + 0.6), 1.5), mat.sand);
+      const ripples: THREE.BufferGeometry[] = [];
+      for (let d = a; d < b; d += 2.2) ripples.push(lay(d, d + 0.5, across(-half * (0.4 + random() * 0.6), half * (0.4 + random() * 0.6)), 0.5));
+      backdrop(joined(ripples), mat.sandRipple);
+    } else if (kind === 'mud') {
+      backdrop(lay(a - 2, b + 2, across(-half - 0.4, half + 0.4), 1.5), mat.mud);
+      const puddles: THREE.BufferGeometry[] = [];
+      for (let d = a + 1; d < b - 2; d += 3 + random() * 3) {
+        const middle = (random() - 0.5) * half * 1.2;
+        puddles.push(lay(d, d + 1.5 + random() * 2, across(middle - 1 - random() * 1.5, middle + 1 + random() * 1.5), 0.5));
+      }
+      backdrop(joined(puddles), mat.puddle);
+    } else if (kind === 'washout') {
+      // Gullies cut across the road by water, none quite all the way.
+      backdrop(lay(a, b, across(-half, half), 1), mat.verge);
+      const cuts: THREE.BufferGeometry[] = [];
+      for (let d = a + 0.5; d < b - 0.5; d += 1.8 + random()) cuts.push(lay(d, d + 0.6 + random() * 0.5, across(-half * (0.7 + random() * 0.3), half * (0.6 + random() * 0.4)), 0.3));
+      backdrop(joined(cuts), mat.gully);
+    } else if (kind === 'grid') {
+      // A pit with steel bars across it, and a fence either side that the grid is a gap in.
+      backdrop(lay(a, b, across(-half - 0.5, half + 0.5), 0.5), mat.gully);
+      const bars: THREE.BufferGeometry[] = [];
+      for (let d = a + 0.1; d < b; d += 0.32) bars.push(lay(d, d + 0.12, across(-half - 0.5, half + 0.5), 0.12));
+      scene.add(new THREE.Mesh(joined(bars).translate(0, 0.02, 0), mat.steel));
+    } else if (kind === 'splash') {
+      backdrop(lay(a, b, across(-30, 30)), mat.water);
+    }
+  }
+
+  // --- Rumble strips on the outside of the tight corners: red and white blocks inside the edge
+  const kerbs: [THREE.BufferGeometry[], THREE.BufferGeometry[]] = [[], []];
+  for (const kerb of stage.kerbs) {
+    const [inner, outer] = kerb.side > 0 ? [half - KERB_WIDTH, half] : [-half, -half + KERB_WIDTH];
+    let n = 0;
+    for (let d = kerb.from; d < kerb.to; d += 1.6) kerbs[n++ % 2]!.push(lay(d, Math.min(kerb.to, d + 1.6), across(inner, outer), 1.6));
+  }
+  if (kerbs[0].length) backdrop(joined(kerbs[0]), mat.kerbRed);
+  if (kerbs[1].length) backdrop(joined(kerbs[1]), mat.kerbWhite);
+
   // --- The ford: a stream lying over the road
   const hasWater = water.to > water.from && water.from >= 0;
   if (hasWater) backdrop(lay(water.from, water.to, across(-60, 60)), mat.water);
@@ -380,7 +565,13 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
   }
 
   // --- Road edges: a low bank of thrown-up earth down each side, broken where the water and the gully cross
-  const breaks = [hasWater ? [water.from, water.to] : null, hasBridge ? [bridge.from, bridge.to] : null].filter((b) => b !== null).sort((a, b) => a[0]! - b[0]!);
+  const breaks = [
+    hasWater ? [water.from, water.to] : null,
+    hasBridge ? [bridge.from, bridge.to] : null,
+    ...patches.filter((p) => p.kind === 'splash' || p.kind === 'grid').map((p) => [p.from, p.to]),
+  ]
+    .filter((b) => b !== null)
+    .sort((a, b) => a[0]! - b[0]!);
   const banks: [number, number][] = [];
   let begin = from;
   for (const [a, b] of breaks) {
@@ -453,14 +644,108 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
     for (const side of [-1, 1]) scene.add(new THREE.Mesh(lay(bridge.from - 1.5, bridge.to + 1.5, [[side * deck, 0.6], [side * deck, 0.95]], 2), mat.rail));
   }
 
-  // --- The zebra: one shape, drawn for each of the herd
-  const zebraShape = zebraShapes();
-  const herd = Array.from({ length: hazards.zebra.count }, () => {
-    const zebra = new THREE.Group();
-    zebra.add(new THREE.Mesh(zebraShape.pale, mat.zebra), new THREE.Mesh(zebraShape.dark, mat.stripe));
-    scene.add(zebra);
-    return zebra;
+  // --- Edge markers: a white post with a reflector every 25 metres down each side, where it is road and not water or a gap
+  const markers: { x: number; y: number }[] = [];
+  const gapAt = (d: number) => breaks.some(([a, b]) => d > a! - 3 && d < b! + 3) || (hasBridge && d > bridge.from - bridge.taper && d < bridge.to + bridge.taper);
+  for (let d = stage.startAt + 20; d < stage.finishAt; d += 25) {
+    if (gapAt(d)) continue;
+    for (const side of [-1, 1]) markers.push(placeAt(stage, d, side * (half + 1.7)));
+  }
+  many(new THREE.BoxGeometry(0.14, 1, 0.14).translate(0, 0.5, 0), mat.marker, markers, (m) => {
+    spot.position.set(m.x, 0, m.y);
+    spot.scale.setScalar(1);
+    return 1;
   });
+  if (markers.length) {
+    const caps = new THREE.InstancedMesh(new THREE.BoxGeometry(0.16, 0.18, 0.16).translate(0, 0.86, 0), mat.reflector, markers.length);
+    markers.forEach((m, i) => {
+      spot.position.set(m.x, 0, m.y);
+      spot.rotation.set(0, 0, 0);
+      spot.scale.setScalar(1);
+      spot.updateMatrix();
+      caps.setMatrixAt(i, spot.matrix);
+    });
+    scene.add(caps);
+  }
+
+  // --- The fence the cattle grid is a gap in: posts out into the grass both ways, and two strands of wire
+  for (const patch of patches.filter((p) => p.kind === 'grid')) {
+    const middle = (patch.from + patch.to) / 2;
+    const posts: { x: number; y: number }[] = [];
+    const wire: number[] = [];
+    for (const side of [-1, 1]) {
+      const line: { x: number; y: number }[] = [];
+      for (let out = half + 1; out <= half + 60; out += 4) line.push(placeAt(stage, middle, side * out));
+      posts.push(...line);
+      for (const height of [0.6, 1.05]) for (let i = 0; i < line.length - 1; i++) wire.push(line[i]!.x, height, line[i]!.y, line[i + 1]!.x, height, line[i + 1]!.y);
+    }
+    many(new THREE.CylinderGeometry(0.07, 0.08, 1.2, 5).translate(0, 0.6, 0), mat.trunk, posts, (post) => {
+      spot.position.set(post.x, 0, post.y);
+      spot.scale.setScalar(1);
+      return 0.9;
+    });
+    const strands = new THREE.BufferGeometry();
+    strands.setAttribute('position', new THREE.Float32BufferAttribute(wire, 3));
+    scene.add(new THREE.LineSegments(strands, mat.wire));
+  }
+
+  // --- Fallen branches: a bough in pieces from its butt on the verge to its tip on the road, with twigs and a few leaves
+  for (const branch of hazards.branches ?? []) {
+    const parts = branchParts(branch, half).map((part) => ({ ...placeAt(stage, part.along, part.across), r: part.r }));
+    const wood: THREE.BufferGeometry[] = [];
+    const leaves: THREE.BufferGeometry[] = [];
+    const up = new THREE.Vector3(0, 1, 0);
+    const piece = (a: THREE.Vector3, b: THREE.Vector3, r: number): THREE.BufferGeometry => {
+      const way = b.clone().sub(a);
+      const shape = new THREE.CylinderGeometry(r * 0.8, r, way.length(), 5);
+      shape.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(up, way.normalize()));
+      return shape.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+    };
+    for (let i = 0; i < parts.length - 1; i++) {
+      const [p, q] = [parts[i]!, parts[i + 1]!];
+      const a = new THREE.Vector3(p.x, p.r * 0.6, p.y);
+      const b = new THREE.Vector3(q.x, q.r * 0.6, q.y);
+      wood.push(piece(a, b, p.r * 0.55));
+      // A twig off every other joint, up and out to alternate sides, with a tuft of leaves on its end.
+      if (i % 2 === 0) {
+        const out = new THREE.Vector3(q.y - p.y, 0, -(q.x - p.x)).normalize().multiplyScalar(i % 4 ? 0.8 : -0.8);
+        const tip = b.clone().add(out).add(new THREE.Vector3(0, 0.6, 0));
+        wood.push(piece(b, tip, 0.06));
+        // A sphere, not an icosahedron: `joined` needs shapes with an index, and three builds polyhedra without one.
+        leaves.push(new THREE.SphereGeometry(0.4, 5, 3).scale(1, 0.6, 1).translate(tip.x, tip.y, tip.z));
+      }
+    }
+    scene.add(new THREE.Mesh(shaded(joined(wood)), mat.trunk));
+    if (leaves.length) scene.add(new THREE.Mesh(shaded(joined(leaves)), mat.canopy));
+  }
+
+  // --- The animals: one shape for each kind, drawn for each animal of that kind on the stage
+  const kinds: Record<'zebra' | Species, { shape: () => AnimalShape; pale: THREE.Material; dark: THREE.Material }> = {
+    zebra: { shape: zebraShapes, pale: mat.zebra, dark: mat.stripe },
+    giraffe: { shape: giraffeShapes, pale: mat.giraffe, dark: mat.giraffePatch },
+    warthog: { shape: warthogShapes, pale: mat.warthog, dark: mat.warthogDark },
+    ostrich: { shape: ostrichShapes, pale: mat.ostrichPale, dark: mat.ostrich },
+    flamingo: { shape: flamingoShapes, pale: mat.flamingo, dark: mat.flamingoDark },
+  };
+  const counts: Record<'zebra' | Species, number> = { zebra: hazards.zebra.count, giraffe: 0, warthog: 0, ostrich: 0, flamingo: 0 };
+  for (const group of hazards.animals ?? []) counts[group.kind] += group.count;
+  const flocks = Object.fromEntries(
+    (Object.keys(kinds) as ('zebra' | Species)[]).map((kind) => {
+      if (!counts[kind]) return [kind, [] as THREE.Group[]];
+      const { shape, pale, dark } = kinds[kind];
+      const made = shape();
+      return [
+        kind,
+        Array.from({ length: counts[kind] }, () => {
+          const animal = new THREE.Group();
+          animal.add(new THREE.Mesh(made.pale, pale), new THREE.Mesh(made.dark, dark));
+          animal.visible = false;
+          scene.add(animal);
+          return animal;
+        }),
+      ];
+    }),
+  ) as Record<'zebra' | Species, THREE.Group[]>;
 
   // --- Posts at the start, and a chequered banner over the finish
   const gate = (distance: number): THREE.Group => {
@@ -568,6 +853,25 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
     mat.rail.color = token('--ink');
     mat.zebra.color = token('--zebra');
     mat.stripe.color = token('--stripe');
+    mat.giraffe.color = token('--giraffe');
+    mat.giraffePatch.color = token('--giraffe-patch');
+    mat.warthog.color = token('--warthog');
+    mat.warthogDark.color = token('--warthog-dark');
+    mat.ostrich.color = token('--ostrich');
+    mat.ostrichPale.color = token('--ostrich-pale');
+    mat.flamingo.color = token('--flamingo');
+    mat.flamingoDark.color = token('--flamingo-dark');
+    mat.grass.color = token('--verge-grass');
+    mat.sand.color = token('--sand');
+    mat.sandRipple.color = token('--sand-ripple');
+    mat.mud.color = token('--mud');
+    mat.puddle.color = token('--water');
+    mat.steel.color = token('--metal');
+    mat.wire.color = token('--ink');
+    mat.kerbRed.color = token('--kerb');
+    mat.kerbWhite.color = token('--kerb-white');
+    mat.marker.color = token('--marker');
+    mat.reflector.color = token('--reflector');
     // On the earth the car's shadow is brown, not the blue it casts on the drawing sheet.
     car.applyTheme((name) => token(name === '--ground-shade' ? '--stage-shade' : name));
     ghost.applyTheme((name) => token(name === '--ground-shade' ? '--stage-shade' : name));
@@ -579,6 +883,8 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
     SUN.set(...sky.sun).normalize();
     fog.near = sky.fog.near;
     fog.far = sky.fog.far;
+    // The car's paint is lit by the studio: at night it is turned down, and the headlights do the rest.
+    renderer.toneMappingExposure = sky.exposure;
   };
 
   const resize = (width: number, height: number): void => {
@@ -609,14 +915,22 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
     }
     surround.position.set(eye.x, 0, eye.y);
 
-    herd.forEach((zebra, i) => {
-      const where = view.herd[i];
-      zebra.visible = where !== undefined;
-      if (!where) return;
-      // A small bob as it walks.
-      zebra.position.set(where.x, Math.abs(Math.sin((where.x + where.y) * 1.7)) * 0.06, where.y);
-      zebra.rotation.y = -where.heading;
-    });
+    // The headlights: from the nose, the way the car points.
+    const [ax, ay] = [Math.cos(at.heading), Math.sin(at.heading)];
+    lamp.lampOn.value = view.lamps;
+    lamp.lampAt.value.set(at.x + ax * 2.1, view.lift + 0.7, at.y + ay * 2.1);
+    lamp.lampAhead.value.set(ax, ay);
+
+    const used: Record<string, number> = {};
+    for (const where of view.animals) {
+      const animal = flocks[where.kind][(used[where.kind] = (used[where.kind] ?? -1) + 1)];
+      if (!animal) continue;
+      animal.visible = true;
+      // A small bob as it goes.
+      animal.position.set(where.x, Math.abs(Math.sin((where.x + where.y) * 1.7)) * 0.06, where.y);
+      animal.rotation.y = -where.heading;
+    }
+    for (const [kind, flock] of Object.entries(flocks)) for (let i = (used[kind] ?? -1) + 1; i < flock.length; i++) flock[i]!.visible = false;
 
     const count = Math.min(view.dust.length, mostDust);
     for (let i = 0; i < count; i++) {
