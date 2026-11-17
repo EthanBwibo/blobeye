@@ -3,6 +3,7 @@ import { HANDLING, carSpeeds, engineRpm, stepCar, type CarState, type DriveInput
 import { buildStage, formatTime, isNewBest, locate, newTrial, poseAt, stepTrial, type Stage, type Trial } from './stage';
 import { CHASE, START, chaseAim, chaseFov, chaseView, countdown, newChase, stepChase, turnBetween } from './chase';
 import { RUN_OUT, growScenery, roadFrame } from './scenery';
+import { TARGETS, medalFor } from './splits';
 
 const DT = 1 / 120;
 const still: CarState = { x: 0, y: 0, heading: 0, vx: 0, vy: 0 };
@@ -118,6 +119,13 @@ describe('stage', () => {
     expect(trial.time).toBeGreaterThan(50);
     expect(trial.time).toBeLessThan(70);
     expect(offRoad).toBeLessThan(2);
+    // It passed all three checkpoints on the way, in order.
+    expect(trial.splits).toHaveLength(3);
+    expect(trial.splits).toEqual([...trial.splits].sort((a, b) => a - b));
+    expect(trial.splits[2]).toBeLessThan(trial.time);
+    // The medal times are set against this driver: it takes silver, with gold just out of its reach.
+    expect(medalFor(trial.time)).toBe('silver');
+    expect(trial.time - TARGETS.gold).toBeLessThan(2);
     const clock = trial.time;
     for (let i = 0; i < 120 * 6; i++) stepTrial(stage, trial, { throttle: 1, brake: 0, steer: 0 }, DT);
     expect(trial.time).toBe(clock);
