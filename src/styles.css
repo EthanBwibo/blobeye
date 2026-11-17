@@ -184,6 +184,31 @@ button{font:inherit; color:inherit; cursor:pointer; -webkit-tap-highlight-color:
 .tach .bar::after{content:""; position:absolute; right:0; top:0; bottom:0; width:12.5%; background:var(--fire); opacity:.45}
 .tach output{font-family:var(--f-mono); font-size:13px; font-variant-numeric:tabular-nums; color:var(--ink); min-width:8ch; text-align:right}
 .toggle{display:none}
+.on-narrow{display:none}
+
+/* rally timeline: a wide panel along the bottom of the sheet, with the car above it (laptop only) */
+.view.wide{align-items:flex-end}
+.view.wide > .panel{width:min(100%,1120px); margin-right:clamp(0px,5vw,72px)}
+.years{list-style:none; margin:6px 0 0; padding:0; display:grid; grid-template-columns:repeat(8,minmax(0,1fr))}
+.years li{position:relative; border-top:1.5px solid var(--ink); padding:16px 10px 0 0; display:flex; flex-direction:column; gap:3px}
+.years li::before{content:""; position:absolute; left:0; top:-6.5px; width:10px; height:10px; border-radius:50%;
+  background:var(--paper-2); border:1.5px solid var(--ink)}
+.years li.safari::before{background:var(--murram)}
+.years b{font-family:var(--f-display); font-weight:700; font-size:30px; line-height:1; color:var(--ink)}
+.years li.safari b{color:var(--gold)}
+.years span{font-size:14px; line-height:1.25}
+.years small{font-family:var(--f-mono); font-size:11px; line-height:1.3; color:var(--ink-soft)}
+
+/* specs table (laptop only) */
+.panel.specs{width:min(100%,580px)}
+.specs table{width:100%; border-collapse:collapse; border:1.5px solid var(--ink); font-size:15px; line-height:1.3}
+.specs th,.specs td{padding:8px 10px; text-align:left; vertical-align:top; border-bottom:1px solid var(--grid-major)}
+.specs tbody tr:last-child > *{border-bottom:0}
+.specs thead th,.specs thead td{border-bottom:1.5px solid var(--ink)}
+.specs th{font-family:var(--f-mono); font-weight:500; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink)}
+.specs tbody th{color:var(--ink-soft); width:6.5em; padding-top:10px}
+.specs td{font-variant-numeric:tabular-nums}
+.specs td small{display:block; font-family:var(--f-mono); font-size:11px; color:var(--ink-soft)}
 .lbl{font-family:var(--f-mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft)}
 
 @media (max-width:760px){
@@ -191,6 +216,9 @@ button{font:inherit; color:inherit; cursor:pointer; -webkit-tap-highlight-color:
   body{font-size:16px}
   .view{align-items:flex-end; padding-block:24px calc(var(--dock-h) + 12px)}
   .view > .panel{margin-left:0}
+  /* the timeline and the specs table are laptop only; the sheets either side keep their numbers (src/ui/sheets.ts) */
+  .view.laptop, .on-wide{display:none}
+  .on-narrow{display:inline}
   .hero{align-items:flex-end}
   .lede{font-size:17px}
   .body{padding:12px 14px 14px; gap:8px}

@@ -14,8 +14,9 @@ Reference sites for feel: lusion.co and unseen.co (scrolling and motion), oryzo.
 
 **Working**
 
-- The engine chapter: five sheets, scroll-driven camera, live firing order, exhaust pulses, hold-to-rev, header switch, light and dark themes.
-- The Safari stage on the last sheet: when the car drives off, the page cuts to a time trial in 3D, seen from a chase camera behind the car, with a 3-2-1 start. One gravel stage of about a minute, arrow keys or WASD, dust, a clock, and the best time kept in `localStorage`. Laptop only; phones get a note instead.
+- Nine sheets on a laptop, seven on a phone. The engine chapter: five sheets, scroll-driven camera, live firing order, exhaust pulses, hold-to-rev, header switch, light and dark themes.
+- The rally timeline (sheet 7) and the 2004 specs table (sheet 9), on screens wider than 760px only. Every entry and figure is in `docs/FACTS.md` with its source.
+- The Safari stage on sheet 8: when the car drives off, the page cuts to a time trial in 3D, seen from a chase camera behind the car, with a 3-2-1 start. One gravel stage of about a minute, arrow keys or WASD, dust, a clock, and the best time kept in `localStorage`. Laptop only; phones get a note instead.
 - Unit tests on the engine model, the car's shape, the handling, the stage, the chase camera, the start and the scenery. Typecheck and production build pass.
 - Checked in headless Chrome at 1366×768 and 400×820: all sheets render, no page errors, no sideways scroll, controls respond.
 
@@ -24,6 +25,7 @@ Reference sites for feel: lusion.co and unseen.co (scrolling and motion), oryzo.
 - **The sound has never been heard by a person.** It was written blind. Expect to tune it (issue: "Tune the exhaust sound by ear").
 - **The Safari stage has never been driven or seen by a person, and its 3D view has never been run in a browser at all.** It was written blind against its tests and the build: a scripted driver finishes in about 64 seconds without leaving the road. Expect to tune `HANDLING` in `src/game/handling.ts`, `CHASE` in `src/game/chase.ts`, and the colours (`--sky`, `--haze`, `--hills` and the rest in `src/styles.css`) by eye. Its frame rate has not been measured.
 - Trees and rocks cannot be hit: the car passes through them.
+- **The timeline and specs sheets have never been seen by a person.** They were checked by tests and build only. In particular, the camera key on the timeline sheet (`ABOVE_TIMELINE` in `src/scene/camera.ts`) tips the view down to lift the car above the timeline panel; the amount is a guess.
 - No real phone, no Safari, no Firefox.
 - Several car facts. See `docs/FACTS.md`.
 
@@ -47,19 +49,20 @@ Node 20+. On Windows, this folder is inside OneDrive: pause sync or exclude `nod
 ## Map of the code
 
 ```
-index.html              markup for the five sheets and the control dock
+index.html              markup for the nine sheets and the control dock
 src/main.ts             wires everything together; the frame loop
 src/styles.css          all styling; colour tokens at the top
 src/engine/model.ts     THE source of truth: cylinders, firing, pulse timing, geometry, revs
 src/engine/model.test.ts
 src/scene/engineScene.ts  builds and animates the Three.js drawing
-src/scene/camera.ts       camera keyframes, one per sheet
+src/scene/camera.ts       camera keyframes, one per sheet, and the named sheet numbers
 src/audio/exhaust.ts      the synth
 src/ui/controls.ts        dock buttons
 src/ui/readouts.ts        tachometer, firing strip, pulse timeline
 src/ui/scroll.ts          smooth scrolling (Lenis), a snap point per sheet, keyboard paging
+src/ui/sheets.ts          which sheets are on the page at this width, and the scroll position in sheets (pure, tested)
 src/ui/intro.ts           the title card with the sound choice
-src/ui/rallyGate.ts       the way in to the Safari stage: fetches the game on the last sheet, starts it when the car has gone
+src/ui/rallyGate.ts       the way in to the Safari stage: fetches the game on the Safari sheet, starts it when the car has gone
 src/game/handling.ts      how the car drives on gravel (pure, tested)
 src/game/stage.ts         the road, the clock and the best time (pure, tested)
 src/game/chase.ts         the chase camera and the 3-2-1 start (pure, tested)
@@ -88,7 +91,8 @@ Add a new behaviour by putting the numbers in `model.ts` first, testing them, th
 - **Coordinates.** +z is the front of the car, -x is the car's right, +y is up. Cylinder 1 is front right.
 - **The game's coordinates.** The driving is flat: x and y seen from above, heading 0 along +x, turning right makes it grow. `world.ts` draws that as x and z with y up. Things painted on the ground do not write depth and are drawn in order, so they never flicker against each other.
 - **The drawing runs in slow motion.** `drawingRevsPerSecond` is deliberately far slower than the real rpm. The sound uses real rpm.
-- **Adding a sheet** means a `<section class="view">` in `index.html` and a matching entry in `CAMERA_KEYS`.
+- **Adding a sheet** means a `<section class="view">` in `index.html`, a matching entry in `CAMERA_KEYS`, and new values for the sheet numbers below it in `src/scene/camera.ts` (`HERITAGE_SHEET`, `DRIVE_OFF_SHEET`, `LAST_SHEET`). Renumber the "Sheet N" labels in the markup too.
+- **Laptop-only sheets** carry the class `laptop` and are hidden below 760px. They keep their sheet number, so on a phone the scroll from sheet 6 to sheet 8 passes through sheet 7's camera key. The "of 9" and "of 7" counts are `on-wide` and `on-narrow` spans.
 - **Notes on phones.** Below 760px a panel shows its heading, first sentence and live readout; anything with the class `more` waits behind a More button. Keep each panel's always-visible part short enough that the top 35% of a 360×640 screen stays clear.
 - **Reduced motion** is honoured in the scene, the scrolling, the intro and CSS. Keep it that way. With it on, Lenis is not started at all.
 - **Do not add `scroll-behavior: smooth` in CSS.** Lenis drives the scrolling and the two fight.

@@ -1,7 +1,7 @@
 import './styles.css';
 import { ExhaustSynth } from './audio/exhaust';
 import { createEngineState, stepEngine } from './engine/model';
-import { LAST_SHEET } from './scene/camera';
+import { DRIVE_OFF_SHEET } from './scene/camera';
 import { createEngineScene, type EngineScene } from './scene/engineScene';
 import { bindControls } from './ui/controls';
 import { initIntro } from './ui/intro';
@@ -9,6 +9,7 @@ import { initRallyGate } from './ui/rallyGate';
 import { clearFraction, initNotes, trackDockHeight } from './ui/layout';
 import { updateReadouts } from './ui/readouts';
 import { initScroll } from './ui/scroll';
+import { sheetAt, visibleSheets } from './ui/sheets';
 
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const state = createEngineState();
@@ -19,7 +20,10 @@ const cylinderLabels = [1, 2, 3, 4].map((n) => document.getElementById(`t${n}`)!
 const frontLabel = document.getElementById('tfront')!;
 initNotes();
 
-const sheets = Array.from(document.querySelectorAll<HTMLElement>('.view'));
+// Every sheet has a number in the story, which the camera follows. Phones leave some sheets out.
+const allSheets = Array.from(document.querySelectorAll<HTMLElement>('.view'));
+let sheets = visibleSheets(allSheets);
+window.addEventListener('resize', () => (sheets = visibleSheets(allSheets)));
 
 // The drawing needs WebGL. Without it the notes and readouts still work.
 let scene: EngineScene | null = null;
@@ -54,7 +58,7 @@ if (scene) {
 }
 
 // The intro holds the page until the visitor chooses; "with sound" presses the dock's own engine button.
-const scroll = initScroll(sheets, reducedMotion);
+const scroll = initScroll(sheets.map((s) => s.el), reducedMotion);
 initIntro(scroll, reducedMotion, (withSound) => {
   if (withSound) document.getElementById('sound')?.click();
 });
@@ -74,18 +78,12 @@ const rally = initRallyGate({
   },
 });
 
-/** Scroll position measured in sheets: 0 at the first sheet. */
+/** Scroll position measured in sheets of the story: 0 at the first sheet. */
 function currentSheet(): number {
-  const y = window.scrollY;
-  for (let i = sheets.length - 1; i >= 0; i--) {
-    const top = sheets[i]!.offsetTop;
-    if (y >= top || i === 0) {
-      const next = sheets[i + 1]?.offsetTop ?? top + sheets[i]!.offsetHeight;
-      const within = Math.max(0, Math.min(1, (y - top) / Math.max(1, next - top)));
-      return Math.min(sheets.length - 1, i + within);
-    }
-  }
-  return 0;
+  return sheetAt(
+    window.scrollY,
+    sheets.map((s) => ({ top: s.el.offsetTop, index: s.index })),
+  );
 }
 
 let previous = performance.now();
@@ -98,8 +96,8 @@ function frame(now: number): void {
     stepEngine(state, dt, reducedMotion);
     scene?.render(dt, sheet);
     updateReadouts(state, scene?.firing ?? [], cylinderLabels);
-    // On the last sheet the car drives off, and the stage takes its place.
-    rally.update(sheet > LAST_SHEET - 0.03, sheet < LAST_SHEET - 0.1, scene?.carGone ?? false);
+    // On the Safari sheet the car drives off, and the stage takes its place.
+    rally.update(Math.abs(sheet - DRIVE_OFF_SHEET) < 0.03, sheet < DRIVE_OFF_SHEET - 0.1, scene?.carGone ?? false);
   }
   requestAnimationFrame(frame);
 }

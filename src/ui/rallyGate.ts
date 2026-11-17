@@ -11,14 +11,14 @@ export interface RallyGateHost {
 
 export interface RallyGate {
   /**
-   * Call once per frame. `onSheet` is true on the last sheet and `clear` once the visitor is well away
+   * Call once per frame. `onSheet` is true on the Safari sheet and `clear` once the visitor is well away
    * from it. When the car has driven off (`carGone`) the stage starts by itself, once per visit to the sheet.
    */
   update(onSheet: boolean, clear: boolean, carGone: boolean): void;
 }
 
 /**
- * The way in to the Safari stage, on the last sheet. The game is a separate chunk: it is fetched and
+ * The way in to the Safari stage, on its own sheet. The game is a separate chunk: it is fetched and
  * built when the visitor reaches this sheet, and cuts in when the car has driven off or the button is pressed.
  *
  * The game is keyboard only, so on phones and tablets the button gives way to a note.
