@@ -14,8 +14,8 @@ export function storyNumbers(asides: readonly boolean[]): number[] {
 }
 
 /**
- * The sheets that are on the page at this screen size. Some are left out on phones (`.laptop` in
- * styles.css); each one keeps its number, so the camera keys mean the same thing at every size.
+ * The sheets that are on the page. Every sheet shows at every screen size today, but one that is hidden
+ * is left out and the rest keep their numbers, so the camera keys mean the same thing whatever is shown.
  * A sheet with `data-aside` is not numbered: see `storyNumbers`.
  */
 export function visibleSheets(all: HTMLElement[]): Sheet[] {

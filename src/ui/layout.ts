@@ -39,13 +39,15 @@ export function trackDockHeight(onChange: () => void): void {
 
 /**
  * How much of the screen, from the top, is free of notes on the fullest sheet (0 to 1).
- * Panels the reader has opened are skipped: opening a note should not move the drawing.
+ * Panels the reader has opened are skipped: opening a note should not move the drawing. So are the
+ * data sheets (`.view.data`: the rally timeline and the specs table), which are taller than the rest and
+ * show the whole car, not the engine: measured, they would shrink the engine on every sheet.
  * Returns null on wide screens, where the notes sit beside the drawing.
  */
 export function clearFraction(): number | null {
   if (window.innerWidth > NARROW_WIDTH) return null;
   let tallest = 0;
-  for (const panel of document.querySelectorAll<HTMLElement>('.view > .panel:not(.open)')) {
+  for (const panel of document.querySelectorAll<HTMLElement>('.view:not(.data) > .panel:not(.open)')) {
     const view = panel.parentElement!;
     // From the panel's top edge to the bottom of its sheet, which rests on the bottom of the screen.
     tallest = Math.max(tallest, view.getBoundingClientRect().bottom - panel.getBoundingClientRect().top);

@@ -30,7 +30,7 @@ const partLabels = (xraySheet ? DRIVETRAIN : []).map((part) => {
   return label;
 });
 
-// Every sheet has a number in the story, which the camera follows. Phones leave some sheets out.
+// Every sheet has a number in the story, which the camera follows.
 const allSheets = Array.from(document.querySelectorAll<HTMLElement>('.view'));
 let sheets = visibleSheets(allSheets);
 window.addEventListener('resize', () => (sheets = visibleSheets(allSheets)));
@@ -97,7 +97,7 @@ function currentSheet(): number {
   );
 }
 
-/** How far the X-ray has come on, 0 to 1. Always 0 on phones, where its sheet is left out. */
+/** How far the X-ray has come on, 0 to 1. */
 function currentXray(): number {
   const i = sheets.findIndex((s) => s.el === xraySheet);
   if (i < 0) return 0;

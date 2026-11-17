@@ -24,6 +24,8 @@ export interface DriveInput {
   brake: number;
   /** -1 is full left, 1 is full right. */
   steer: number;
+  /** 0 to 1. Locks the rear wheels: the tail lets go and the nose swings round, for hairpins. Never reverses. */
+  handbrake?: number;
 }
 
 export const HANDLING = {
@@ -48,6 +50,12 @@ export const HANDLING = {
   grip: 6,
   /** The same with the wheel turned and a pedal down: the tail steps out. */
   slideGrip: 3,
+  /** The handbrake slows the car at this rate, in m/s², and only going forwards. */
+  handbrake: 9,
+  /** Sideways grip with the handbrake on: the rear wheels are locked, so the tail barely holds. */
+  handbrakeGrip: 0.9,
+  /** With the handbrake on the nose swings this much faster for the same turn of the wheel. */
+  handbrakeTurn: 1.8,
 } as const;
 
 const clamp = (v: number, low: number, high: number) => Math.min(high, Math.max(low, v));
@@ -65,12 +73,14 @@ export function stepCar(car: CarState, input: DriveInput, dt: number, onRoad = t
   const throttle = clamp(input.throttle, 0, 1);
   const brake = clamp(input.brake, 0, 1);
   const steer = clamp(input.steer, -1, 1);
+  const handbrake = clamp(input.handbrake ?? 0, 0, 1);
 
   // Swing the nose. The car keeps travelling the way it was going, so this is what starts a slide.
   const before = carSpeeds(car).forward;
   const pace = Math.abs(before);
   const bite = Math.min(1, pace / H.steerFrom) / (1 + pace / H.steerFade);
-  const heading = car.heading + steer * H.turnRate * bite * Math.sign(before) * dt;
+  const swing = 1 + (H.handbrakeTurn - 1) * handbrake;
+  const heading = car.heading + steer * H.turnRate * bite * swing * Math.sign(before) * dt;
 
   let { forward, sideways } = carSpeeds({ ...car, heading });
 
@@ -79,12 +89,14 @@ export function stepCar(car: CarState, input: DriveInput, dt: number, onRoad = t
     if (forward > 0.5) forward = Math.max(0, forward - brake * H.brake * dt);
     else forward = Math.max(-H.reverseSpeed, forward - brake * H.accel * 0.5 * dt);
   }
+  if (handbrake > 0 && forward > 0) forward = Math.max(0, forward - handbrake * H.handbrake * dt);
   const drag = (throttle > 0 ? 0 : H.coast) + (onRoad ? 0 : H.roughDrag);
   forward *= Math.exp(-drag * dt);
 
-  // The tyres scrub off sideways speed. Less so with the wheel turned and a pedal down.
+  // The tyres scrub off sideways speed. Less so with the wheel turned and a pedal down, and hardly at all
+  // with the rear wheels locked.
   const provoke = Math.abs(steer) * Math.max(throttle, brake);
-  const grip = H.grip + (H.slideGrip - H.grip) * provoke;
+  const grip = (H.grip + (H.slideGrip - H.grip) * provoke) * (1 - handbrake) + H.handbrakeGrip * handbrake;
   sideways *= Math.exp(-grip * dt);
 
   const fx = Math.cos(heading);

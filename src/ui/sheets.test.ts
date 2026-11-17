@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { offsetFrom, sheetAt, storyNumbers } from './sheets';
 
 const every = [0, 1, 2, 3].map((index) => ({ top: index * 800, index }));
-/** Sheet 2 left out, as the laptop-only sheets are on a phone. */
+/** Sheet 2 left out, as a hidden sheet is. */
 const without = [
   { top: 0, index: 0 },
   { top: 800, index: 1 },
