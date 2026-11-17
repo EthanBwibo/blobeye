@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { rimProfile, tyreProfile } from './model';
 import { BELT, CABIN, DOOR_HALF_WIDTH, PARTS, RING, RING_SIZE, SIDE_TOP, WHEELS, bodyHalfWidth, flareAt, lerpAt, section, sideX, surfacePoint, topHalfWidth, wrapPoint } from './model';
 
 describe('lerpAt', () => {
@@ -24,6 +25,28 @@ describe('body width', () => {
     expect(topHalfWidth(0)).toBe(CABIN.roofHalfWidth);
     expect(topHalfWidth((CABIN.cowl + CABIN.roofFront) / 2)).toBeGreaterThan(CABIN.roofHalfWidth);
     expect(topHalfWidth(CABIN.deck - 2)).toBeGreaterThan(CABIN.roofHalfWidth);
+  });
+});
+
+describe('wheels', () => {
+  const face = WHEELS.width / 2;
+  it('have tyres whose sidewalls bulge past the bead and roll over onto the tread', () => {
+    const tyre = tyreProfile();
+    const radii = tyre.map(([r]) => r);
+    expect(Math.max(...radii)).toBeCloseTo(WHEELS.radius, 5);
+    expect(Math.min(...radii)).toBeCloseTo(WHEELS.rimRadius - 0.1, 5);
+    const widest = Math.max(...tyre.map(([, a]) => a));
+    expect(widest).toBeGreaterThan(face + 0.2);
+    expect(Math.min(...tyre.map(([, a]) => a))).toBeCloseTo(-widest, 5);
+    // The tread is narrower than the sidewalls
+    const tread = tyre.filter(([r]) => r > WHEELS.radius - 0.01).map(([, a]) => Math.abs(a));
+    expect(Math.max(...tread)).toBeLessThan(face);
+  });
+  it('have rims with a lip that stands proud of the bead and a dish behind it', () => {
+    const lip = Math.max(...rimProfile().map(([, a]) => a));
+    expect(lip).toBeGreaterThan(face);
+    expect(lip - (face - WHEELS.dish)).toBeGreaterThan(0.8);
+    expect(Math.max(...rimProfile().map(([r]) => r))).toBeLessThan(WHEELS.radius - 1);
   });
 });
 
