@@ -629,41 +629,46 @@ export function createCar(): Car {
   add(sheet([[mouth[0]!, mouth[1]!, mouth[2]!], [mouth[5]!, mouth[4]!, mouth[3]!]]), mat.dark, false, bonnet);
   line(scoopSlice(scoop.front + 0.03, scoop.top - 0.45, scoop.halfWidth), false, bonnet);
 
-  // --- Rear wing: a tall bowed plank with a plate on each end, held clear of the boot on two slim uprights
+  // --- Rear wing: a low, curved plank with swept plates on its ends, on two short uprights at the boot edges
   const { wing } = PARTS;
-  const deckAt = (z: number) => lerpAt(SIDE_TOP, z) - 0.5;
+  // The uprights stand on the edge of the boot, which is a little below its middle: start them inside the body.
+  const deckAt = (z: number) => lerpAt(SIDE_TOP, z) - 1.4;
+  /** The plank's profile, front to back: a thin airfoil whose trailing edge curls up. */
+  const chord = Array.from({ length: 9 }, (_, i) => i / 8);
+  const camber = (t: number) => wing.under + wing.thick / 2 + wing.camber * t * t;
+  const thickness = (t: number) => 0.12 + wing.thick * Math.sin(Math.PI * Math.sqrt(t)) * (1 - 0.35 * t);
+  const chordZ = (t: number) => mix(wing.front, wing.rear, t);
+  const plank: Pair[] = [
+    ...chord.map((t): Pair => [chordZ(t), camber(t) + thickness(t) / 2]),
+    ...chord
+      .slice(1, -1)
+      .reverse()
+      .map((t): Pair => [chordZ(t), camber(t) - thickness(t) / 2]),
+  ];
   for (const side of SIDES) {
-    const { strut } = wing;
+    const { strut, endPlate } = wing;
+    // Where the strut meets the plank: the underside of the profile at that point, lifted by the bow
+    const meet = (z: number) => camber((wing.front - z) / (wing.front - wing.rear)) - 0.2 + wingArch(wing.upright);
     const upright: Pair[] = [
       [strut.baseFront, deckAt(strut.baseFront)],
-      [strut.topFront, wing.under + wingArch(wing.upright) + 0.2],
-      [strut.topRear, wing.under + wingArch(wing.upright) + 0.2],
+      [strut.topFront, meet(strut.topFront)],
+      [strut.topRear, meet(strut.topRear)],
       [strut.baseRear, deckAt(strut.baseRear)],
     ];
     painted(prism(upright, side * wing.upright - strut.halfThick, side * wing.upright + strut.halfThick), true, true);
-    // The end plate: taller than the plank, longer below it than above, with its corners cut
-    const { endPlate } = wing;
+    // The end plate: its leading edge sweeps back as it rises, its trailing edge follows, its corners are cut
     const [low, high] = [wing.under - endPlate.below, wing.top + endPlate.above];
     const plate: Pair[] = [
-      [wing.front + 0.9, wing.under],
-      [wing.front + 0.3, high - 0.5],
-      [wing.front - 0.6, high],
-      [wing.rear - 0.9, high],
-      [wing.rear - 1.1, low + 0.9],
-      [wing.rear - 0.3, low],
-      [wing.front - 0.2, low],
+      [wing.front + 0.8, low + 0.3],
+      [wing.front + 0.5 - endPlate.sweep * 0.55, mix(low, high, 0.55)],
+      [wing.front - endPlate.sweep, high],
+      [wing.rear - endPlate.sweep * 0.3, high],
+      [wing.rear - endPlate.sweep * 0.45, high - 0.6],
+      [wing.rear + 0.3, low],
+      [wing.front + 0.2, low],
     ];
     painted(prism(plate, side * wing.halfWidth, side * (wing.halfWidth + endPlate.thick)), true, true);
   }
-  const plank: Pair[] = [
-    [wing.front + 0.4, wing.under + 0.35],
-    [wing.front - 1.2, wing.top - 0.1],
-    [wing.front - 3.4, wing.top],
-    [wing.rear - 0.4, wing.top - 0.15],
-    [wing.rear - 0.5, wing.under + 0.3],
-    [wing.front - 3.4, wing.under],
-    [wing.front - 1.2, wing.under],
-  ];
   const spans = Array.from({ length: 17 }, (_, i) => mix(-wing.halfWidth, wing.halfWidth, i / 16));
   painted(bowed(plank, spans, wingArch), true, true);
 

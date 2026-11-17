@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PARTS, SIDE_TOP, lerpAt, wingArch } from './model';
+import { PARTS, SIDE_TOP, lerpAt, topHalfWidth, wingArch } from './model';
 import { PLATES, PLATE_WORDS, pickPlate } from './plates';
 
 describe('headlamps', () => {
@@ -29,14 +29,24 @@ describe('rear wing', () => {
     expect(wingArch(4)).toBeGreaterThan(wingArch(9));
     expect(wingArch(99)).toBe(0);
   });
-  it('stands tall, with daylight under the plank and under the end plates', () => {
+  it('sits low and close to the boot, with daylight still under the plank and under the end plates', () => {
     const deck = Math.max(lerpAt(SIDE_TOP, wing.front), lerpAt(SIDE_TOP, wing.rear));
-    expect(wing.under - deck).toBeGreaterThan(5);
-    expect(wing.under - wing.endPlate.below - deck).toBeGreaterThan(2);
+    expect(wing.under - deck).toBeGreaterThan(2);
+    expect(wing.under - deck).toBeLessThan(4);
+    expect(wing.under - wing.endPlate.below - deck).toBeGreaterThan(1);
   });
-  it('has slim uprights set in from the end plates', () => {
+  it('is curved: the trailing edge curls up, and the profile fits under its top', () => {
+    expect(wing.camber).toBeGreaterThan(0.5);
+    expect(wing.under + wing.thick / 2 + wing.camber).toBeLessThan(wing.top);
+  });
+  it('has short slim uprights out at the boot edges, inside the end plates', () => {
+    const z = (wing.strut.baseFront + wing.strut.baseRear) / 2;
     expect(wing.strut.halfThick * 2).toBeLessThan(0.5);
-    expect(wing.upright + wing.strut.halfThick).toBeLessThan(wing.halfWidth - 3);
+    expect(wing.upright).toBeGreaterThan(topHalfWidth(z) - 2.5);
+    expect(wing.upright + wing.strut.halfThick).toBeLessThan(wing.halfWidth);
+  });
+  it('has end plates that sweep back as they rise', () => {
+    expect(wing.endPlate.sweep).toBeGreaterThan(1);
   });
 });
 

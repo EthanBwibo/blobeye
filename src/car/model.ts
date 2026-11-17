@@ -88,12 +88,16 @@ export const PARTS = {
   bonnet: { front: 44.5, rear: 22, edge: 10 },
   scoop: { front: 34.3, topFront: 33.1, topRear: 28.8, rear: 27.1, top: 22.6, halfWidth: 4.5 },
   wing: {
-    /** `top` and `under` are the plank at its ends. It is bowed: `arch` higher in the middle. */
-    front: -41.3, rear: -47.0, top: 31.2, under: 30.3, arch: 0.8, halfWidth: 13.5, upright: 8.2,
-    /** Each upright is a slim strut, so there is daylight between the wing and the boot. */
+    /**
+     * A low wing close to the boot. `under` is the lowest point of the plank at its ends and `camber` how far its
+     * trailing edge curls up above its leading edge; `top` is the highest point of the profile. It is also bowed
+     * across the car: `arch` higher in the middle. `upright` is how far out the uprights stand, at the boot edges.
+     */
+    front: -41.3, rear: -47.0, under: 26.2, top: 27.9, camber: 0.9, thick: 0.75, arch: 0.5, halfWidth: 15.0, upright: 13.7,
+    /** Each upright is a short slim strut, so there is still daylight between the wing and the boot. */
     strut: { baseFront: -42.7, baseRear: -45.5, topFront: -43.9, topRear: -45.7, halfThick: 0.2 },
-    /** The plate on each end of the plank: how far it reaches below and above the plank, and how thick it is. */
-    endPlate: { below: 1.7, above: 0.8, thick: 0.3 },
+    /** The plate on each end: how far it reaches below and above the plank, how far it sweeps back at the top, and its thickness. */
+    endPlate: { below: 1.1, above: 1.0, sweep: 1.6, thick: 0.3 },
   },
   headlamp: {
     inner: 20, outer: 59, y: 15.1, innerUp: 1.9, outerUp: 2.8, innerDown: 1.9, outerDown: 2.6,
