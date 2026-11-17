@@ -52,6 +52,8 @@ export interface View {
   lean: number;
   /** How high the car is above the flat ground: on the crest, and in the air past it. */
   lift: number;
+  /** How far the wheels are off the road, in metres: 0 except in a jump. The shadow stays on the road. */
+  air: number;
   /** Where each zebra is on the ground, and the way it is walking. */
   herd: readonly { x: number; y: number; heading: number }[];
   eye: Place;
@@ -554,6 +556,7 @@ export function createWorld(stage: Stage): World {
     car.group.rotation.set(view.dive, Math.PI / 2 - at.heading, view.lean);
     car.setSteer(view.steer * FULL_LOCK);
     car.setRoll(view.rolled / (WHEELS.radius * UNIT));
+    car.setAir(view.air / UNIT);
 
     camera.position.set(eye.x, eye.height, eye.y);
     camera.lookAt(target.x, target.height, target.y);

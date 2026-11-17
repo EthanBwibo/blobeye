@@ -61,6 +61,8 @@ export interface Car {
   setXray(amount: number): void;
   /** Turn the wheels by this angle in radians, as if the car had rolled forward. */
   setRoll(angle: number): void;
+  /** Say how far the ground is below the wheels, in car units: 0 on the ground. In a jump the shadow stays down there, wider and fainter. */
+  setAir(below: number): void;
   /** Turn the front wheels by this angle in radians. Positive steers to the car's right. */
   setSteer(angle: number): void;
   /** Re-read the colours. `token` turns a CSS custom property name into a colour. */
@@ -122,11 +124,14 @@ function paintMaterial(): THREE.ShaderMaterial {
   });
 }
 
-/** The shadow on the sheet: soft under the body, darker where each tyre touches. */
+/**
+ * The shadow under the car: a wide soft edge, deeper under the middle of the body, and darkest where each
+ * tyre touches. `spread` is 0 with the car on the ground; as it leaves the ground the shadow widens and thins.
+ */
 function shadowMaterial(): THREE.ShaderMaterial {
   const tyres = [WHEELS.frontZ, WHEELS.rearZ].flatMap((z) => SIDES.map((s) => `vec2(${(s * WHEELS.track).toFixed(2)}, ${z.toFixed(2)})`));
   return new THREE.ShaderMaterial({
-    uniforms: { color: { value: new THREE.Color() }, opacity: { value: 1 } },
+    uniforms: { color: { value: new THREE.Color() }, opacity: { value: 1 }, spread: { value: 0 } },
     vertexShader: `
       varying vec2 vPlace;
       void main() {
@@ -136,6 +141,7 @@ function shadowMaterial(): THREE.ShaderMaterial {
     fragmentShader: `
       uniform vec3 color;
       uniform float opacity;
+      uniform float spread;
       varying vec2 vPlace;
       float roundBox(vec2 p, vec2 size, float r) {
         vec2 d = abs(p) - size + r;
@@ -146,8 +152,12 @@ function shadowMaterial(): THREE.ShaderMaterial {
         return exp(-dot(d, d));
       }
       void main() {
-        float body = 0.34 * (1.0 - smoothstep(-8.0, 9.0, roundBox(vPlace, vec2(18.5, 48.5), 9.0)));
-        float tyres = ${tyres.map((t) => `tyre(${t})`).join(' + ')};
+        float edge = roundBox(vPlace, vec2(18.5, 48.5), 9.0);
+        // A long soft edge, eased so it has no line where it ends, and a deeper core under the floor of the car
+        float soft = 1.0 - smoothstep(-10.0 - 6.0 * spread, 15.0 + 14.0 * spread, edge);
+        float core = 1.0 - smoothstep(-16.0, -2.0, edge);
+        float body = (0.3 * soft * soft + 0.12 * core) / (1.0 + 1.2 * spread);
+        float tyres = (${tyres.map((t) => `tyre(${t})`).join(' + ')}) * max(0.0, 1.0 - 3.0 * spread);
         gl_FragColor = vec4(color, opacity * min(0.8, body + 0.5 * tyres));
         #include <colorspace_fragment>
       }`,
@@ -408,7 +418,7 @@ export function createCar(): Car {
   };
 
   // --- Shadow on the sheet
-  add(new THREE.PlaneGeometry(80, 140).rotateX(-Math.PI / 2).translate(0, 0.04, 0), mat.shadow);
+  const shadow = add(new THREE.PlaneGeometry(120, 180).rotateX(-Math.PI / 2).translate(0, 0.04, 0), mat.shadow);
 
   // --- Main shell, lofted from the traced profile, with its outline
   const zs = stations();
@@ -821,6 +831,11 @@ export function createCar(): Car {
       else material.opacity = opacity;
     }
   };
+  const setAir = (below: number): void => {
+    const air = Math.max(0, below);
+    shadow.position.y = -air;
+    mat.shadow.uniforms.spread!.value = Math.min(1, air / 45);
+  };
   const setRoll = (angle: number): void => {
     for (const [hub, side] of hubs) hub.rotation.z = side * angle;
   };
@@ -829,5 +844,5 @@ export function createCar(): Car {
     for (const [wheel, side] of steered) wheel.rotation.y = (side * Math.PI) / 2 - angle;
   };
 
-  return { group: car, setBonnet, setOpacity, setXray, setRoll, setSteer, applyTheme };
+  return { group: car, setBonnet, setOpacity, setXray, setRoll, setAir, setSteer, applyTheme };
 }

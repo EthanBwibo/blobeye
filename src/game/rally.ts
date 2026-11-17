@@ -288,6 +288,7 @@ export function startRally(host: RallyHost): Rally {
       dive: (calm ? 0 : dive) - tilt,
       lean: calm ? 0 : lean,
       lift: trial.height,
+      air: trial.airborne ? Math.max(0, trial.height - groundAt(stage.hazards, trial.progress)) : 0,
       herd: herdAt(stage, trial.time),
       // The camera stands on the road behind the car, so a jump is seen from the ground.
       eye: { ...eye, height: eye.height + groundAt(stage.hazards, trial.progress - chase.reach) },
