@@ -15,14 +15,17 @@ Reference sites for feel: lusion.co and unseen.co (scrolling and motion), oryzo.
 **Working**
 
 - The engine chapter: five sheets, scroll-driven camera, live firing order, exhaust pulses, hold-to-rev, header switch, light and dark themes.
-- The Safari stage on the last sheet: when the car drives off, a top-down time trial takes over the screen. One gravel stage of about a minute, arrow keys or WASD, dust, a clock, and the best time kept in `localStorage`. Keyboard only; phones get a note instead.
-- 12 unit tests on the engine model. Typecheck and production build pass.
+- The Safari stage on the last sheet: when the car drives off, a top-down time trial takes over the screen. One gravel stage of about a minute, arrow keys or WASD, dust, a clock, and a top ten (name and time) kept in `localStorage`. Keyboard only; phones get a note instead.
+- The X-ray sheet, second on wide screens: the body drains to an outline and a simplified drivetrain shows in gold, with the six parts named. Phones do not get this sheet; it is taken out and the rest are renumbered.
+- 88 unit tests. Typecheck and production build pass.
 - Checked in headless Chrome at 1366×768 and 400×820: all sheets render, no page errors, no sideways scroll, controls respond.
 
 **Not checked**
 
 - **The sound has never been heard by a person.** It was written blind. Expect to tune it (issue: "Tune the exhaust sound by ear").
 - **The Safari stage has never been driven or seen by a person.** It was written blind against its tests: a scripted driver finishes in about 64 seconds without leaving the road. Expect to tune `HANDLING` in `src/game/handling.ts` and the colours by eye.
+- **The X-ray sheet and the top ten have never been seen by a person, or run in a browser at all.** They were written against their tests and the build. Expect to tune by eye: the camera (`XRAY` in `src/scene/camera.ts`), where the names sit (`labelAt` in `src/car/drivetrain.ts`), and the list and name box (`src/game/rally.css`).
+- **The top ten is on the device only.** The shared board is not built. It plugs in at `openBoard` in `src/game/leaderboard.ts`, where a comment says what it has to do.
 - No real phone, no Safari, no Firefox.
 - Several car facts. See `docs/FACTS.md`.
 
@@ -62,6 +65,10 @@ src/ui/rallyGate.ts       the way in to the Safari stage: fetches the game on th
 src/game/handling.ts      how the car drives on gravel (pure, tested)
 src/game/stage.ts         the road, the clock and the best time (pure, tested)
 src/game/sprite.ts        the car from above, from the same traced numbers as the 3D body
+src/game/leaderboard.ts   the top ten: its rules, where it is kept, and the hook for a shared board (pure, tested)
+src/game/boardHud.ts      the top ten on the game's screen, and the box that asks for a name
+src/car/drivetrain.ts     the X-ray sheet's drivetrain as numbers: simplified, not measured (tested)
+src/scene/drivetrainScene.ts  draws it, in a pass of its own over the car
 src/game/rally.ts         the game's canvas, keys, dust and readouts; a separate chunk, loaded on demand
 src/ui/layout.ts          phone layout: the More button on the notes, dock height, space left for the drawing
 docs/FACTS.md           what is confirmed, illustrative, unverified
@@ -84,7 +91,8 @@ Add a new behaviour by putting the numbers in `model.ts` first, testing them, th
 - **Colours live in CSS.** The scene reads `--paper`, `--ink`, `--gold`, `--fire` via `applyTheme()`. Add a colour as a token in all three theme blocks, never as a literal in TypeScript.
 - **Coordinates.** +z is the front of the car, -x is the car's right, +y is up. Cylinder 1 is front right.
 - **The drawing runs in slow motion.** `drawingRevsPerSecond` is deliberately far slower than the real rpm. The sound uses real rpm.
-- **Adding a sheet** means a `<section class="view">` in `index.html` and a matching entry in `CAMERA_KEYS`.
+- **Adding a sheet** means a `<section class="view">` in `index.html` and a matching entry in `CAMERA_KEYS`. Sheet numbers in the markup are `data-sheet` spans, filled in by `initSheets` in `src/ui/layout.ts`.
+- **The X-ray sheet is not in `CAMERA_KEYS`.** It is a stop of its own: `storyAt` in `src/scene/camera.ts` turns the scroll position into a sheet (counted as if the X-ray sheet were not there) and an X-ray amount. Everything else, `LAST_SHEET` included, still counts sheets the old way.
 - **Notes on phones.** Below 760px a panel shows its heading, first sentence and live readout; anything with the class `more` waits behind a More button. Keep each panel's always-visible part short enough that the top 35% of a 360×640 screen stays clear.
 - **Reduced motion** is honoured in the scene, the scrolling, the intro and CSS. Keep it that way. With it on, Lenis is not started at all.
 - **Do not add `scroll-behavior: smooth` in CSS.** Lenis drives the scrolling and the two fight.

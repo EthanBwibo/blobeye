@@ -17,6 +17,7 @@ Fan posters and memory are not sources.
 - **Which bank has the longer run.** The model gives cylinders 2 and 4 the longer pipes. Not yet confirmed.
 - **Pulse delays.** `PULSE_DELAY` in `src/engine/model.ts` (60° vs 150°) is exaggerated so the effect is easy to see and hear. Real differences are smaller and change with revs.
 - **Pipe routing and engine proportions.** Drawn for clarity, not to scale.
+- **The drivetrain on the X-ray sheet.** `src/car/drivetrain.ts` places and sizes the engine, gearbox, centre differential, prop shaft and front and rear differentials so each reads on the drawing. Nothing is measured. The sheet names the parts and says nothing about how they work, what type they are or why the layout is called symmetrical: none of that is sourced yet.
 - **Sound.** Synthesised from the model, not sampled from a car.
 
 ## Unverified: do not publish yet
