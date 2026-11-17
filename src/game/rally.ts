@@ -8,10 +8,11 @@
 import './rally.css';
 import type { EngineState } from '../engine/model';
 import { WHEELS } from '../car/model';
+import { createBoardHud } from './boardHud';
 import { chaseFov, chaseView, countdown, newChase, stepChase, type Chase } from './chase';
 import { carSpeeds, easeSteer, engineRpm, type DriveInput } from './handling';
 import { scatter } from './scenery';
-import { buildStage, formatTime, isNewBest, locate, newTrial, stepTrial, type Stage, type Trial } from './stage';
+import { buildStage, formatTime, locate, newTrial, stepTrial, type Stage, type Trial } from './stage';
 import { MOST_DUST, UNIT, createWorld, type Puff, type World } from './world';
 
 export interface RallyHost {
@@ -29,24 +30,6 @@ export interface Rally {
 
 /** The driving runs in fixed steps, so a run is the same on a slow screen as on a fast one. */
 const STEP = 1 / 120;
-const BEST_KEY = 'blobeye.rally.best';
-
-function readBest(): number | null {
-  try {
-    const stored = Number(localStorage.getItem(BEST_KEY));
-    return Number.isFinite(stored) && stored > 0 ? stored : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveBest(time: number): void {
-  try {
-    localStorage.setItem(BEST_KEY, time.toFixed(3));
-  } catch {
-    /* private windows may refuse: the time still shows for this visit */
-  }
-}
 
 // The stage and its drawing are built once and kept, so driving it again starts at once.
 let built: { stage: Stage; world: World } | null = null;
@@ -89,8 +72,6 @@ export function startRally(host: RallyHost): Rally {
   const { stage, world } = build();
   const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let trial: Trial = newTrial(stage);
-  let best = readBest();
-  let newBest = false;
 
   // --- The page: the drawing and a few readouts
   const root = document.createElement('div');
@@ -101,12 +82,14 @@ export function startRally(host: RallyHost): Rally {
   root.innerHTML = `
     <div class="way"></div>
     <div class="hud clock"><span>Safari stage · Time</span><b data-time>0:00.00</b></div>
-    <div class="hud best"><span>Best on this device</span><b data-best></b></div>
     <div class="hud call" data-call aria-live="assertive"><b data-call-big></b><span data-call-small></span></div>
     <div class="hud keys"><span>Arrows or WASD · drive</span><span>R · restart</span><span>M · sound</span><span>Esc · leave</span></div>`;
   root.prepend(world.canvas);
   const part = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
-  const [timeEl, bestEl, callEl, callBig, callSmall, wayEl] = [part('[data-time]'), part('[data-best]'), part('[data-call]'), part('[data-call-big]'), part('[data-call-small]'), part('.way')];
+  const [timeEl, callEl, callBig, callSmall, wayEl] = [part('[data-time]'), part('[data-call]'), part('[data-call-big]'), part('[data-call-small]'), part('.way')];
+
+  // The top ten, and the name box on the finish panel. When the box closes the keys come back to the game.
+  const board = createBoardHud(root, callEl, () => root.focus());
 
   world.applyTheme();
   const scheme = matchMedia('(prefers-color-scheme: dark)');
@@ -128,7 +111,7 @@ export function startRally(host: RallyHost): Rally {
     trial = newTrial(stage);
     trial.index = locate(stage, trial.car.x, trial.car.y, trial.index).index;
     chase = newChase(trial.car);
-    newBest = false;
+    board.reset();
     waited = steer = dive = lean = 0;
     dust.length = 0;
   };
@@ -137,6 +120,8 @@ export function startRally(host: RallyHost): Rally {
   const held = new Set<string>();
   const DRIVE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD']);
   const onKeyDown = (e: KeyboardEvent): void => {
+    // While a name is being typed, the letters are letters.
+    if (board.takesKey(e)) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     const known = DRIVE_KEYS.has(e.code) || ['KeyR', 'KeyM', 'Escape', 'Enter', 'Space'].includes(e.code);
     if (!known) return;
@@ -237,14 +222,13 @@ export function startRally(host: RallyHost): Rally {
 
   const showReadouts = (): void => {
     timeEl.textContent = formatTime(trial.time);
-    bestEl.textContent = best === null ? '–:––.––' : formatTime(best);
     wayEl.style.width = `${(Math.min(1, Math.max(0, (trial.progress - stage.startAt) / (stage.finishAt - stage.startAt))) * 100).toFixed(1)}%`;
     const { call, held: waiting } = countdown(waited);
     let big = '';
     let small = '';
     if (trial.phase === 'finished') {
       big = formatTime(trial.time);
-      small = `${newBest ? 'New best' : 'Stage complete'} · Enter to go again · Esc to leave`;
+      small = board.note();
     } else if (waiting) {
       big = call ?? '';
       small = 'Get ready';
@@ -258,7 +242,7 @@ export function startRally(host: RallyHost): Rally {
     if (callBig.textContent !== big) callBig.textContent = big;
     if (callSmall.textContent !== small) callSmall.textContent = small;
     callSmall.hidden = small === '';
-    callBig.classList.toggle('gold', trial.phase === 'finished' && newBest);
+    callBig.classList.toggle('gold', trial.phase === 'finished' && board.isBest());
   };
 
   // --- The loop
@@ -280,11 +264,7 @@ export function startRally(host: RallyHost): Rally {
       settleBody(before, STEP);
       chase = stepChase(chase, trial.car, STEP);
       raiseDust(STEP);
-      if (was === 'running' && trial.phase === 'finished' && isNewBest(best, trial.time)) {
-        best = trial.time;
-        newBest = true;
-        saveBest(best);
-      }
+      if (was === 'running' && trial.phase === 'finished') board.finished(trial.time);
     }
     // The exhaust synth follows these.
     revs += (engineRpm(carSpeeds(trial.car).forward) - revs) * (1 - Math.exp(-dt * 12));

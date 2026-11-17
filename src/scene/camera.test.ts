@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAMERA_KEYS, DRIVE_OFF_SHEET, HERITAGE_SHEET, LAST_SHEET, cameraAt, cameraDistanceScale, diveDepth, narrowCentre } from './camera';
+import { CAMERA_KEYS, DRIVE_OFF_SHEET, HERITAGE_SHEET, LAST_SHEET, cameraAt, cameraDistanceScale, diveDepth, narrowCentre, xrayAmount } from './camera';
 
 describe('narrowCentre', () => {
   it('puts the engine just below the middle of the space above the notes', () => {
@@ -35,6 +35,46 @@ describe('cameraAt', () => {
     const y = cameraAt(1.5).position[1];
     expect(y).toBeGreaterThan(3.3);
     expect(y).toBeLessThan(10.5);
+  });
+});
+
+describe('xrayAmount', () => {
+  it('is off on the opening sheet and fully on at the X-ray sheet', () => {
+    expect(xrayAmount(-1)).toBe(0);
+    expect(xrayAmount(0)).toBe(1);
+  });
+  it('comes on part of the way down', () => {
+    expect(xrayAmount(-0.9)).toBe(0);
+    expect(xrayAmount(-0.4)).toBeGreaterThan(0);
+    expect(xrayAmount(-0.4)).toBeLessThan(1);
+  });
+  it('has put the body back before the bonnet starts to lift', () => {
+    // The story runs from sheet 0 to sheet 1 over the scroll after the X-ray sheet, and the bonnet lifts from a depth of 0.2.
+    expect(xrayAmount(0.25)).toBe(0);
+    expect(diveDepth(0.25)).toBeLessThan(0.5);
+    expect(xrayAmount(0.2)).toBeLessThan(0.2);
+  });
+  it('is off everywhere else, and where there is no X-ray sheet', () => {
+    for (const offset of [-5, 1, 3, Infinity, -Infinity]) expect(xrayAmount(offset)).toBe(0);
+  });
+  it('never jumps', () => {
+    for (let o = -1; o < 1; o += 0.01) expect(Math.abs(xrayAmount(o + 0.01) - xrayAmount(o))).toBeLessThan(0.08);
+  });
+});
+
+describe('X-ray view', () => {
+  it('leaves the usual camera alone until the X-ray comes on', () => {
+    expect(cameraAt(0, 0)).toEqual(cameraAt(0));
+  });
+  it('looks at the car from its side and above', () => {
+    const { position, target } = cameraAt(0, 1);
+    expect(position[1]).toBeGreaterThan(cameraAt(0).position[1]);
+    expect(Math.abs(position[0] - target[0])).toBeGreaterThan(Math.abs(position[2] - target[2]));
+  });
+  it('moves there gradually', () => {
+    const y = cameraAt(0, 0.5).position[1];
+    expect(y).toBeGreaterThan(cameraAt(0).position[1]);
+    expect(y).toBeLessThan(cameraAt(0, 1).position[1]);
   });
 });
 

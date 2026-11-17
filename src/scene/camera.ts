@@ -49,8 +49,30 @@ export const CAMERA_KEYS: readonly CameraKey[] = [
   { at: LAST_SHEET, ...WHOLE_CAR }, // the specs table
 ];
 
-/** Where the camera should be at a scroll position measured in sheets. */
-export function cameraAt(sheet: number): CameraView {
+/** The X-ray sheet: from the car's side and above, so the drivetrain reads as one line from nose to tail. */
+const XRAY: View = { position: [60.5, 28, 19.2], target: [0, 0.5, -9], fov: 20 };
+
+/**
+ * How far the X-ray has come on (0 to 1), from how far the scroll is from the X-ray sheet, in sheets.
+ * It comes on over the scroll down from the opening sheet, and has gone again soon after, before the
+ * bonnet starts to lift. The X-ray sheet is a stop of its own, outside the story: see `storyNumbers`
+ * in `src/ui/sheets.ts`.
+ */
+export function xrayAmount(offset: number): number {
+  const ramp = (from: number, to: number) => smoothstep(Math.min(1, Math.max(0, (offset - from) / (to - from))));
+  return offset <= 0 ? ramp(-0.75, -0.2) : 1 - ramp(0.02, 0.25);
+}
+
+/** Where the camera should be at a sheet of the story, pulled towards the X-ray view by `xray` (0 to 1). */
+export function cameraAt(sheet: number, xray = 0): CameraView {
+  const view = storyCamera(sheet);
+  if (xray <= 0) return view;
+  const blend = (from: number, to: number) => from + (to - from) * xray;
+  const mix = (from: [number, number, number], to: [number, number, number]): [number, number, number] => [blend(from[0], to[0]), blend(from[1], to[1]), blend(from[2], to[2])];
+  return { position: mix(view.position, XRAY.position), target: mix(view.target, XRAY.target), fov: blend(view.fov, XRAY.fov ?? DEFAULT_FOV) };
+}
+
+function storyCamera(sheet: number): CameraView {
   const keys = CAMERA_KEYS;
   const after = keys.findIndex((k) => k.at > sheet);
   const b = keys[after < 0 ? keys.length - 1 : after]!;
