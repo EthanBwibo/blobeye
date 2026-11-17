@@ -3,7 +3,7 @@
  * the stage itself (how the road bends, and what lies on it), so they stay true if the stage changes.
  * Pure functions.
  */
-import type { Rock } from './hazards';
+import type { PatchKind, Rock, Species } from './hazards';
 import { poseAt, type Stage } from './stage';
 
 export interface Corner {
@@ -22,8 +22,9 @@ export type Caution = 0 | 1 | 2 | 3;
 /** What a call warns of, for the icon on the screen. */
 export type Sign =
   | { kind: 'corner'; turn: Corner['turn']; grade: number; change: Corner['change']; caution: Caution }
-  | { kind: 'crest' | 'water' | 'bridge' | 'animals'; caution: Caution }
-  | { kind: 'rocks'; side: Corner['turn']; caution: Caution };
+  | { kind: 'crest' | 'water' | 'bridge' | 'sand' | 'mud' | 'washout' | 'grid'; caution: Caution }
+  | { kind: 'animals'; animal?: 'zebra' | Species; caution: Caution }
+  | { kind: 'rocks' | 'branch'; side: Corner['turn']; caution: Caution };
 
 export interface Note {
   /** Where the thing it warns of begins, as a distance along the road. */
@@ -129,6 +130,15 @@ export function rockFields(rocks: readonly Rock[]): Rock[][] {
   return fields;
 }
 
+/** What the co-driver calls for each kind of stretch of road. */
+export const PATCH_CALLS: Record<PatchKind, { text: string; say: string; caution: Caution }> = {
+  sand: { text: 'Sand, it slides', say: 'Caution, sand', caution: 1 },
+  mud: { text: 'Mud, slippery', say: 'Mud, careful', caution: 2 },
+  washout: { text: 'Washout!', say: 'Caution, washout', caution: 2 },
+  grid: { text: 'Cattle grid', say: 'Over cattle grid', caution: 0 },
+  splash: { text: 'Splash', say: 'Water splash', caution: 1 },
+};
+
 /** Every call for a stage, in the order they come: its corners, and what lies on the road. */
 export function paceNotes(stage: Stage): Note[] {
   const notes: Note[] = corners(stage).map(cornerNote);
@@ -149,7 +159,32 @@ export function paceNotes(stage: Stage): Note[] {
   }
   if (onStage(water.from)) notes.push({ at: water.from, text: 'Water!', say: 'Caution, water', sign: { kind: 'water', caution: 1 } });
   if (onStage(bridge.from)) notes.push({ at: bridge.from - bridge.taper, text: 'Narrow bridge', say: 'Narrow bridge, keep middle', sign: { kind: 'bridge', caution: 2 } });
-  if (zebra.count && onStage(zebra.at)) notes.push({ at: zebra.at - 4, text: 'Caution, zebra!', say: 'Caution, zebra', sign: { kind: 'animals', caution: 3 } });
+  if (zebra.count && onStage(zebra.at)) notes.push({ at: zebra.at - 4, text: 'Caution, zebra!', say: 'Caution, zebra', sign: { kind: 'animals', animal: 'zebra', caution: 3 } });
+  for (const patch of stage.hazards.patches ?? []) {
+    if (!onStage(patch.from)) continue;
+    const call = PATCH_CALLS[patch.kind];
+    notes.push({ at: patch.from, text: call.text, say: call.say, sign: patch.kind === 'splash' ? { kind: 'water', caution: call.caution } : { kind: patch.kind, caution: call.caution } });
+  }
+  for (const branch of stage.hazards.branches ?? []) {
+    if (!onStage(branch.along)) continue;
+    const right = branch.side > 0;
+    notes.push({
+      at: branch.along,
+      text: right ? 'Branch on the right, keep left' : 'Branch on the left, keep right',
+      say: right ? 'Branch right, keep left' : 'Branch left, keep right',
+      sign: { kind: 'branch', side: right ? 'Right' : 'Left', caution: 2 },
+    });
+  }
+  for (const group of stage.hazards.animals ?? []) {
+    if (!onStage(group.at)) continue;
+    // Flamingos keep to the water beside the road: nothing to call.
+    if (group.kind === 'giraffe') notes.push({ at: group.at - 4, text: 'Caution, giraffe!', say: 'Caution, giraffe', sign: { kind: 'animals', animal: 'giraffe', caution: 3 } });
+    if (group.kind === 'warthog') notes.push({ at: group.at - 4, text: 'Warthogs!', say: 'Caution, warthogs', sign: { kind: 'animals', animal: 'warthog', caution: 2 } });
+    if (group.kind === 'ostrich') {
+      const right = group.side > 0;
+      notes.push({ at: group.at, text: right ? 'Ostrich on the right' : 'Ostrich on the left', say: right ? 'Ostrich right' : 'Ostrich left', sign: { kind: 'animals', animal: 'ostrich', caution: 1 } });
+    }
+  }
   for (const crest of crests) if (crest.height > 0 && onStage(crest.at)) notes.push({ at: crest.at - crest.reach, text: 'Crest, keep it flat', say: 'Over crest, keep it flat', sign: { kind: 'crest', caution: 1 } });
   return notes.sort((a, b) => a.at - b.at);
 }

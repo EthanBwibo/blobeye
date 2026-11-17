@@ -32,14 +32,10 @@ export const HANDLING = {
   /** Pull away at this rate, in m/s². It tails off towards top speed. */
   accel: 15,
   topSpeed: 46,
-  /** Off the road the car cannot hold more than this. */
-  roughTopSpeed: 16,
   brake: 26,
   reverseSpeed: 8,
   /** Share of speed lost per second with the throttle shut. */
   coast: 0.4,
-  /** Extra share of speed lost per second off the road. */
-  roughDrag: 1.6,
   /** Fastest the nose can swing, in radians per second. */
   turnRate: 2.5,
   /** Below this speed the steering has less to work with. */
@@ -58,6 +54,45 @@ export const HANDLING = {
   handbrakeTurn: 1.8,
 } as const;
 
+/**
+ * What the tyres are on. Off the road, and on sand and mud, the car does not stop dead: it grips less and
+ * is held back a little, so it can always be driven back.
+ */
+export interface Surface {
+  /** Sideways grip, as a share of the road's. Lower slides more. */
+  grip: number;
+  /** Share of speed lost per second on top of the usual. */
+  drag: number;
+  /** The fastest the car can be driven here, in m/s. */
+  top: number;
+  /** How much of the throttle and the brakes reach the ground, as a share. */
+  bite: number;
+}
+
+export const SURFACES = {
+  /** Red murram: the road itself. */
+  murram: { grip: 1, drag: 0, top: HANDLING.topSpeed, bite: 1 },
+  /** Loose sand: the tail slides, and it drags. */
+  sand: { grip: 0.42, drag: 0.3, top: 38, bite: 0.75 },
+  /** Mud: slippery, with little to push or brake against. */
+  mud: { grip: 0.3, drag: 0.12, top: 40, bite: 0.55 },
+  /** The grass verge beside the road. */
+  grass: { grip: 0.7, drag: 0.18, top: 36, bite: 0.85 },
+  /** Further out, in the bush: slower, but never a wall. */
+  bush: { grip: 0.5, drag: 0.55, top: 24, bite: 0.7 },
+  /** Where the rains have cut the road away: ruts and holes that slow anything. */
+  washout: { grip: 0.6, drag: 0.9, top: 24, bite: 0.7 },
+  /** A cattle grid: steel bars across the road. A rattle, and a little less grip. */
+  grid: { grip: 0.85, drag: 0.15, top: HANDLING.topSpeed, bite: 1 },
+} as const satisfies Record<string, Surface>;
+
+/** One surface turning into another: `t` of 0 is `a`, 1 is `b`. */
+export function blendSurface(a: Surface, b: Surface, t: number): Surface {
+  const k = Math.min(1, Math.max(0, t));
+  const mix = (x: number, y: number) => x + (y - x) * k;
+  return { grip: mix(a.grip, b.grip), drag: mix(a.drag, b.drag), top: mix(a.top, b.top), bite: mix(a.bite, b.bite) };
+}
+
 const clamp = (v: number, low: number, high: number) => Math.min(high, Math.max(low, v));
 
 /** Speed along the nose (negative when reversing) and across it (positive when sliding to the car's right). */
@@ -67,9 +102,10 @@ export function carSpeeds(car: CarState): { forward: number; sideways: number } 
   return { forward: car.vx * fx + car.vy * fy, sideways: -car.vx * fy + car.vy * fx };
 }
 
-/** Advance the car by `dt` seconds. Returns a new state. */
-export function stepCar(car: CarState, input: DriveInput, dt: number, onRoad = true): CarState {
+/** Advance the car by `dt` seconds on `ground`: a surface, or true for the road and false for the bush. Returns a new state. */
+export function stepCar(car: CarState, input: DriveInput, dt: number, ground: Surface | boolean = true): CarState {
   const H = HANDLING;
+  const under: Surface = ground === true ? SURFACES.murram : ground === false ? SURFACES.bush : ground;
   const throttle = clamp(input.throttle, 0, 1);
   const brake = clamp(input.brake, 0, 1);
   const steer = clamp(input.steer, -1, 1);
@@ -84,19 +120,21 @@ export function stepCar(car: CarState, input: DriveInput, dt: number, onRoad = t
 
   let { forward, sideways } = carSpeeds({ ...car, heading });
 
-  if (throttle > 0) forward += throttle * H.accel * Math.max(0, 1 - forward / (onRoad ? H.topSpeed : H.roughTopSpeed)) * dt;
+  if (throttle > 0) forward += throttle * H.accel * under.bite * Math.max(0, 1 - forward / under.top) * dt;
   if (brake > 0) {
-    if (forward > 0.5) forward = Math.max(0, forward - brake * H.brake * dt);
-    else forward = Math.max(-H.reverseSpeed, forward - brake * H.accel * 0.5 * dt);
+    if (forward > 0.5) forward = Math.max(0, forward - brake * H.brake * under.bite * dt);
+    else forward = Math.max(-H.reverseSpeed, forward - brake * H.accel * 0.5 * under.bite * dt);
   }
   if (handbrake > 0 && forward > 0) forward = Math.max(0, forward - handbrake * H.handbrake * dt);
-  const drag = (throttle > 0 ? 0 : H.coast) + (onRoad ? 0 : H.roughDrag);
+  // Over its top speed, a surface holds the car back gently rather than all at once.
+  const over = Math.max(0, forward - under.top) / under.top;
+  const drag = (throttle > 0 ? 0 : H.coast) + under.drag + over * 0.8;
   forward *= Math.exp(-drag * dt);
 
   // The tyres scrub off sideways speed. Less so with the wheel turned and a pedal down, and hardly at all
   // with the rear wheels locked.
   const provoke = Math.abs(steer) * Math.max(throttle, brake);
-  const grip = (H.grip + (H.slideGrip - H.grip) * provoke) * (1 - handbrake) + H.handbrakeGrip * handbrake;
+  const grip = ((H.grip + (H.slideGrip - H.grip) * provoke) * (1 - handbrake) + H.handbrakeGrip * handbrake) * under.grip;
   sideways *= Math.exp(-grip * dt);
 
   const fx = Math.cos(heading);

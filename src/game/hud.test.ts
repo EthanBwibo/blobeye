@@ -14,7 +14,7 @@ const notes = paceNotes(stage);
 describe('pace-note signs', () => {
   it('give every call an icon kind and a line to say', () => {
     const kinds = new Set(notes.map((n) => n.sign.kind));
-    expect(kinds).toEqual(new Set(['corner', 'crest', 'water', 'bridge', 'rocks', 'animals']));
+    expect(kinds).toEqual(new Set(['corner', 'crest', 'water', 'bridge', 'rocks', 'animals', 'mud', 'branch']));
     for (const note of notes) expect(note.say.length).toBeGreaterThan(3);
   });
 
@@ -30,6 +30,9 @@ describe('pace-note signs', () => {
     expect(said).toContain('Over crest, keep it flat');
     expect(said).toContain('Caution, water');
     expect(said).toContain('Caution, zebra');
+    expect(said).toContain('Caution, giraffe');
+    expect(said).toContain('Mud, careful');
+    expect(said).toContain('Branch left, keep right');
   });
 
   it('ask for more care on tighter corners, and most when they tighten', () => {
@@ -72,8 +75,15 @@ describe('pace-note icons', () => {
   });
 
   it('have one for every hazard, as inline SVG', () => {
-    for (const kind of ['crest', 'water', 'bridge', 'animals'] as const) expect(signSvg({ kind, caution: 1 })).toMatch(/^<svg[^>]*viewBox="0 0 100 100"[^]*<\/svg>$/);
+    for (const kind of ['crest', 'water', 'bridge', 'animals', 'sand', 'mud', 'washout', 'grid'] as const) expect(signSvg({ kind, caution: 1 })).toMatch(/^<svg[^>]*viewBox="0 0 100 100"[^]*<\/svg>$/);
     expect(signSvg({ kind: 'rocks', side: 'Right', caution: 2 })).toContain('<path');
+    expect(signSvg({ kind: 'branch', side: 'Left', caution: 2 })).toContain('<path');
+    // Each animal has its own silhouette, and its name under it.
+    const animals = (['zebra', 'giraffe', 'warthog', 'ostrich', 'flamingo'] as const).map((animal) => signSvg({ kind: 'animals', animal, caution: 1 }));
+    expect(new Set(animals).size).toBe(5);
+    expect(caption({ kind: 'animals', animal: 'warthog', caution: 2 })).toBe('Warthogs');
+    expect(caption({ kind: 'animals', caution: 2 })).toBe('Zebra');
+    expect(caption({ kind: 'branch', side: 'Right', caution: 2 })).toBe('Branch · keep left');
   });
 
   it('show caution as one, two or three exclamation marks', () => {

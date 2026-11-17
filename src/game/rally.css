@@ -1,6 +1,12 @@
 /* The Safari stage: a full-screen game over the drawing sheet. It cuts in, with no fade. Loaded with the game, not with the page.
    Colours are the tokens at the top of src/styles.css. */
-#rally{position:fixed; inset:0; z-index:20; background:var(--haze); outline:0}
+#rally{position:fixed; inset:0; z-index:20; background:var(--haze); outline:0;
+  /* The stage's own colours that the theme does not set (src/game/world.ts): the grass verge, sand, mud,
+     rumble strips, edge markers and their reflectors, and the animals. The same in both themes. */
+  --verge-grass:#A3A660; --sand:#E2C48E; --sand-ripple:#F3E2BC; --mud:#5E3B24; --kerb:#C8321E; --kerb-white:#F2EEE4;
+  --marker:#EFEDE6; --reflector:#E8A33A;
+  --giraffe:#D9A55B; --giraffe-patch:#7A4321; --warthog:#6E5A4C; --warthog-dark:#33261E;
+  --ostrich:#221C1A; --ostrich-pale:#D8BFA9; --flamingo:#EE8C93; --flamingo-dark:#2A1E1E}
 #rally canvas{position:absolute; inset:0; width:100%; height:100%; display:block}
 #rally .hud{
   position:absolute; display:flex; flex-direction:column; gap:2px; padding:8px 14px;
@@ -86,6 +92,18 @@
   --scrub:#A2A758; --acacia:#5E7F36; --dust:#E7BB92; --rock:#978878; --bark:#5E4431; --stage-shade:#4B331F;
   --water:#5FA6C4; --spray:#F2FAFC; --plank:#B08D5E; --zebra:#FAF8F0; --stripe:#1E1B19;
 }
+/* Night: dark, under a moon, and only seen in the headlights, which brighten these about four times
+   where they fall (LAMP_GLSL in src/game/world.ts). The reflectors are dark until a beam finds them. */
+#rally[data-light="night"]{
+  --sky:#0B1022; --haze:#131A2C; --sun:#E3E8F2; --hills:#0E1424; --savannah:#1E2117; --murram:#3A1B12; --murram-edge:#2A140D;
+  --scrub:#1F2616; --acacia:#141E12; --dust:#4A3E36; --rock:#2C2A2A; --bark:#1A1210; --stage-shade:#06070A;
+  --water:#16263A; --spray:#6F7F94; --plank:#2E2418; --zebra:#4A4A4E; --stripe:#0B0B0C;
+  --verge-grass:#1C2414; --sand:#4A3D2A; --sand-ripple:#5E5038; --mud:#1C120C; --kerb:#4A140C; --kerb-white:#4C4A46;
+  --marker:#55534E; --reflector:#3A2A12;
+  --giraffe:#4A3620; --giraffe-patch:#22140A; --warthog:#2A221C; --warthog-dark:#120E0B;
+  --ostrich:#0E0C0B; --ostrich-pale:#4A4038; --flamingo:#5A3436; --flamingo-dark:#120C0C;
+  --tail-red:#E0281E; --tail-glow:#FF5A40;
+}
 #rally .call small{font-size:10px; color:var(--ink-soft)}
 
 /* The co-driver's calls (src/game/paceIcons.ts): the next one large at the top centre, the one after smaller beside it */
@@ -118,6 +136,11 @@
 @keyframes rally-row{0%,40%{background:color-mix(in srgb,var(--flash) 28%,transparent)}100%{background:transparent}}
 
 /* WRONG WAY, across the middle of the screen */
+/* Stuck off the road for two seconds: a way back onto it (R) */
+#rally .reset{left:50%; top:60%; transform:translateX(-50%); flex-direction:row; align-items:center; gap:12px; padding:10px 18px;
+  cursor:pointer; font:inherit; font-family:var(--f-mono); font-size:14px; letter-spacing:.12em; text-transform:uppercase; pointer-events:auto}
+#rally .reset small{border:1.5px solid currentColor; padding:1px 7px; font-size:11px}
+#rally .reset:focus-visible{outline:2px solid var(--gold); outline-offset:2px}
 #rally .wrongway{position:absolute; left:50%; top:42%; transform:translate(-50%,-50%); padding:4px 34px; color:var(--paper);
   background:var(--fire); border:3px solid var(--ink); font-family:var(--f-display); font-style:italic; font-weight:800;
   font-size:clamp(56px,9vw,120px); line-height:1.05; letter-spacing:.03em; text-transform:uppercase; white-space:nowrap;
@@ -271,7 +294,9 @@
 #rally.touch.done .drawer > :not(.tools){display:none}
 
 /* Readouts let a thumb through to whatever is under them. */
-#rally.touch .hud:not(.call):not(.codriver):not(.board){pointer-events:none}
+#rally.touch .hud:not(.call):not(.codriver):not(.board):not(.reset){pointer-events:none}
+#rally.touch .reset{top:42%; min-height:44px; font-size:12px}
+#rally.touch .reset small{display:none}
 
 /* Held upright, a phone asks to be turned. The run waits meanwhile (rally.ts). */
 #rally .turn{display:none}

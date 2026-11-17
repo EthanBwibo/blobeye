@@ -116,3 +116,94 @@ export function parseGhost(text: string | null, stage: string): Ghost | null {
     return null;
   }
 }
+
+/*
+ * A replay: a ghost packed small enough to send with a time to the shared board. It keeps the car's place,
+ * rounded to the decimetre, and its heading, rounded to a 4096th of a turn, once every `GHOST_STEP`. Not
+ * the height: whoever plays it back puts the car on the ground under it (see `unpackReplay`).
+ *
+ * The text is base64url: a version letter, the first place as two 4-letter numbers, then 6 letters for
+ * each moment: how far it moved since the last (2 letters across, 2 down) and its heading (2). Every moment
+ * is the same size, so the shared table checks a replay's length against its time in plain SQL (see
+ * `supabase/migrations`), and `replayFits` here does the same.
+ */
+
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const REPLAY_VERSION = '1';
+/** Letters in the version and first place, and in each moment after it. */
+const HEAD = 9;
+const MOMENT = 6;
+/** Places are kept in decimetres, and headings in this many parts of a turn. */
+const PER_METRE = 10;
+const TURN = 4096;
+/** The furthest a 2-letter move can go, either way, in decimetres: 204 metres in a tenth of a second. */
+const MOST_MOVE = 2047;
+const FIRST_OFFSET = 2 ** 23;
+/** How far a replay's moments may be from what its time calls for, either way. The shared table allows the same. */
+export const REPLAY_SLACK = 3;
+
+const digits = (value: number, count: number): string => {
+  let text = '';
+  for (let i = count - 1; i >= 0; i--) text += ALPHABET[Math.floor(value / 64 ** i) % 64];
+  return text;
+};
+const number = (text: string, from: number, count: number): number => {
+  let value = 0;
+  for (let i = 0; i < count; i++) value = value * 64 + ALPHABET.indexOf(text[from + i]!);
+  return value;
+};
+
+/** How many moments a replay holds, from its length alone. Not a whole number if it is no replay. */
+const momentsInReplay = (text: string): number => (text.length - HEAD) / MOMENT;
+
+/**
+ * Whether a replay's length is about right for a run of `timeMs` milliseconds: one moment at the start
+ * and one each tenth of a second after, give or take `REPLAY_SLACK`. The same rule as the shared table's.
+ */
+export function replayFits(text: string, timeMs: number): boolean {
+  if (typeof text !== 'string' || !Number.isFinite(timeMs) || timeMs <= 0) return false;
+  if (text[0] !== REPLAY_VERSION || !/^[A-Za-z0-9_-]+$/.test(text)) return false;
+  const moments = momentsInReplay(text);
+  return Number.isInteger(moments) && moments >= 2 && Math.abs(moments - (Math.floor(timeMs / 100) + 1)) <= REPLAY_SLACK;
+}
+
+/** A ghost as a replay, or null if it cannot be packed (a move too long for its letters). */
+export function packReplay(ghost: Pick<Ghost, 'frames'>): string | null {
+  const count = momentsIn(ghost);
+  if (count < 2) return null;
+  const at = (i: number, field: number) => Math.round(ghost.frames[i * FIELDS + field]! * PER_METRE);
+  const [x0, y0] = [at(0, 0), at(0, 1)];
+  if (Math.abs(x0) >= FIRST_OFFSET || Math.abs(y0) >= FIRST_OFFSET) return null;
+  let text = REPLAY_VERSION + digits(x0 + FIRST_OFFSET, 4) + digits(y0 + FIRST_OFFSET, 4);
+  let [x, y] = [x0, y0];
+  for (let i = 0; i < count; i++) {
+    const [nx, ny] = [at(i, 0), at(i, 1)];
+    const [dx, dy] = [nx - x, ny - y];
+    if (Math.abs(dx) > MOST_MOVE || Math.abs(dy) > MOST_MOVE) return null;
+    const heading = ghost.frames[i * FIELDS + 2]!;
+    const turn = ((Math.round((heading / (Math.PI * 2)) * TURN) % TURN) + TURN) % TURN;
+    text += digits(dx + MOST_MOVE + 1, 2) + digits(dy + MOST_MOVE + 1, 2) + digits(turn, 2);
+    [x, y] = [nx, ny];
+  }
+  return text;
+}
+
+/**
+ * Read a replay of a `time`-second run on `stage` back into a ghost. `ground` gives the height of the road
+ * under each place, in order. Null if it is not a replay, or its length does not fit its time.
+ */
+export function unpackReplay(text: string, stage: string, time: number, ground: (x: number, y: number) => number): Ghost | null {
+  if (!Number.isFinite(time) || time <= 0 || time > LONGEST || !replayFits(text, Math.round(time * 1000))) return null;
+  let x = number(text, 1, 4) - FIRST_OFFSET;
+  let y = number(text, 5, 4) - FIRST_OFFSET;
+  const frames: number[] = [];
+  for (let at = HEAD; at < text.length; at += MOMENT) {
+    x += number(text, at, 2) - MOST_MOVE - 1;
+    y += number(text, at + 2, 2) - MOST_MOVE - 1;
+    const turn = number(text, at + 4, 2);
+    if (turn >= TURN) return null;
+    const [px, py] = [x / PER_METRE, y / PER_METRE];
+    frames.push(px, py, Math.atan2(Math.sin((turn / TURN) * Math.PI * 2), Math.cos((turn / TURN) * Math.PI * 2)), ground(px, py));
+  }
+  return { stage, time, frames };
+}
