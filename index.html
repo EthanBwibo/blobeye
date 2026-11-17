@@ -38,7 +38,7 @@
 <main>
   <section class="view hero">
     <div class="panel"><div class="body">
-      <div class="eyebrow">Impreza WRX STI · Sheet 1 of 7</div>
+      <div class="eyebrow">Impreza WRX STI · Sheet 1 of <span class="on-wide">9</span><span class="on-narrow">7</span></div>
       <h1>Blob<span>eye.</span></h1>
       <p class="lede">A rally-bred sedan, drawn from the outside in.</p>
       <p class="cue">Scroll to open it up</p>
@@ -47,7 +47,7 @@
 
   <section class="view hero">
     <div class="panel"><div class="body">
-      <div class="eyebrow">Impreza WRX STI · Sheet 2 of 7</div>
+      <div class="eyebrow">Impreza WRX STI · Sheet 2 of <span class="on-wide">9</span><span class="on-narrow">7</span></div>
       <h2 class="big">Flat <span>four.</span></h2>
       <p class="lede">The engine under a Blobeye's bonnet scoop lies on its side. Four pistons, two each way, punching outward like a boxer's gloves.</p>
       <p class="cue">Scroll to turn the drawing · Start the engine below</p>
@@ -108,15 +108,59 @@
     </div>
   </section>
 
+  <section class="view laptop wide" id="heritageSheet">
+    <div class="panel">
+      <div class="strip"><span>Sheet 7 · Record</span><span>World Rally Championship</span></div>
+      <div class="body">
+        <h2>Rally years</h2>
+        <p>Three manufacturers' titles in a row, three drivers' champions, and two wins on the Safari Rally while it was a round of the world championship.</p>
+        <ol class="years" aria-label="Subaru's world rally titles and Safari Rally wins, in date order">
+          <li><b>1995</b><span>Manufacturers' title</span></li>
+          <li><b>1995</b><span>Drivers' title</span><small>Colin McRae</small></li>
+          <li><b>1996</b><span>Manufacturers' title</span></li>
+          <li><b>1997</b><span>Manufacturers' title</span></li>
+          <li class="safari"><b>1997</b><span>Safari Rally win</span><small>Colin McRae</small></li>
+          <li class="safari"><b>2000</b><span>Safari Rally win</span><small>Richard Burns</small></li>
+          <li><b>2001</b><span>Drivers' title</span><small>Richard Burns</small></li>
+          <li><b>2003</b><span>Drivers' title</span><small>Petter Solberg</small></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
   <section class="view hero" id="rallySheet">
     <div class="panel"><div class="body">
-      <div class="eyebrow">Impreza WRX STI · Sheet 7 of 7</div>
+      <div class="eyebrow">Impreza WRX STI · Sheet <span class="on-wide">8 of 9</span><span class="on-narrow">7 of 7</span></div>
       <h2 class="big">Safari <span>stage.</span></h2>
       <p class="lede">One gravel stage against the clock. Steer early and let it slide.</p>
       <button class="btn solid" id="rallyStart" type="button">Drive the stage</button>
       <p class="cue" id="rallyNote">Arrow keys or WASD · Best time kept on this device</p>
       <p class="small">The stage is made up, not a map of a real one. Unofficial fan project. Not affiliated with or endorsed by Subaru Corporation.</p>
     </div></div>
+  </section>
+
+  <section class="view laptop" id="specsSheet">
+    <div class="panel specs">
+      <div class="strip"><span>Sheet 9 · Data</span><span>2004 WRX STI</span></div>
+      <div class="body">
+        <h2>Two engines</h2>
+        <p>The 2004 car was sold with a 2.0 litre engine in Japan and a 2.5 litre one in the United States.</p>
+        <table>
+          <thead>
+            <tr><td></td><th scope="col">Japan</th><th scope="col">Export · United States</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Engine</th><td>EJ207 turbo flat four<small>1,994 cc</small></td><td>EJ257 turbo flat four<small>2,457 cc</small></td></tr>
+            <tr><th scope="row">Power</th><td>280 PS</td><td>300 hp<small>at 6,000 rpm</small></td></tr>
+            <tr><th scope="row">Torque</th><td>412 N·m<small>at 4,400 rpm</small></td><td>300 lb-ft<small>at 4,000 rpm</small></td></tr>
+            <tr><th scope="row">Weight</th><td>1,460 kg</td><td>3,263 lb</td></tr>
+            <tr><th scope="row">Gearbox</th><td>6-speed manual</td><td>6-speed manual</td></tr>
+          </tbody>
+        </table>
+        <p class="small">Japan: the sedan built from June 2004 to May 2005. United States: the 2004 model year. Each column is in the units it was published in.</p>
+        <p class="small">Unofficial fan project. Not affiliated with or endorsed by Subaru Corporation.</p>
+      </div>
+    </div>
   </section>
 </main>
 
