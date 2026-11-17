@@ -1,15 +1,13 @@
 /**
- * The top ten on the game's screen: the list in the corner, and the box that asks for a name when a run
- * makes the list. The rules and the storage are in `leaderboard.ts`; this file is only the page.
+ * The top ten on the game's screen: the list in the corner, and the box that asks for a name after a
+ * finish. The rules and the storage are in `leaderboard.ts`; this file is only the page.
  */
-import { BOARD_SIZE, DEFAULT_NAME, NAME_LENGTH, addEntry, cleanName, openBoard, placeOf, type Entry } from './leaderboard';
+import { BOARD_SIZE, DEFAULT_NAME, NAME_LENGTH, addEntry, cleanName, openBoard, type Entry } from './leaderboard';
 import { formatTime } from './stage';
 
 export interface BoardHud {
-  /** A run has finished in this many seconds. If it makes the top ten, ask for a name. */
+  /** A run has finished in this many seconds: ask for a name to put to it. */
   finished(time: number): void;
-  /** Whether the run that just finished is the fastest on the board. */
-  isBest(): boolean;
   /** The line under the finishing time: where the run placed and which keys do what. */
   note(): string;
   /** Offer a key press to the name box first. True if the box is being typed in, and the game should leave the key alone. */
@@ -17,6 +15,9 @@ export interface BoardHud {
   /** A new run has begun: a time still waiting for a name is let go. */
   reset(): void;
 }
+
+/** Two rows are the same run if they share a name and a time to the thousandth. */
+const same = (a: Entry, b: Entry): boolean => a.name === b.name && Math.round(a.time * 1000) === Math.round(b.time * 1000);
 
 /**
  * @param root the game's screen, which gets the list
@@ -27,7 +28,6 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
   const panel = document.createElement('div');
   panel.className = 'hud board';
   const heading = document.createElement('span');
-  heading.textContent = `Top ten · ${board.scope}`;
   const list = document.createElement('ol');
   panel.append(heading, list);
   root.append(panel);
@@ -47,25 +47,35 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
   form.append(label);
   call.append(form);
 
+  /** Whether this board is meant to be the one everyone shares. If it then says otherwise, it has fallen back. */
+  const shared = board.scope === 'everyone';
   let entries: Entry[] = [];
-  /** The time waiting for a name, the place the last run took (from 0), and the row it became. */
+  /** The time waiting for a name, the row the last run became, and whether that row is still on its way. */
   let waiting: number | null = null;
-  let place: number | null = null;
   let mine: Entry | null = null;
+  let sending = false;
   let lastName = '';
 
   const draw = (): void => {
-    const rows = entries.map((entry, i) => {
+    heading.textContent = `Top ten · ${board.scope}`;
+    const line = (place: string, entry: Entry): HTMLLIElement => {
       const row = document.createElement('li');
-      // Names are text from a visitor (or, on a shared board, a stranger): never markup.
+      // Names are text from a stranger: never markup.
       const [n, name, time] = [document.createElement('i'), document.createElement('span'), document.createElement('span')];
-      n.textContent = String(i + 1);
+      n.textContent = place;
       name.textContent = entry.name;
       time.textContent = formatTime(entry.time);
       row.append(n, name, time);
-      row.classList.toggle('me', mine !== null && entry.name === mine.name && entry.time === mine.time);
+      row.classList.toggle('me', mine !== null && same(entry, mine));
       return row;
-    });
+    };
+    const rows = entries.map((entry, i) => line(String(i + 1), entry));
+    // A run that missed the ten still gets its row, under the rest.
+    if (mine && !sending && !entries.some((entry) => same(entry, mine!))) {
+      const row = line('–', mine);
+      row.classList.add('below');
+      rows.push(row);
+    }
     if (!rows.length) {
       const none = document.createElement('li');
       none.className = 'none';
@@ -74,11 +84,11 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
     }
     list.replaceChildren(...rows);
   };
-  draw();
   const show = (rows: Entry[]): void => {
     entries = rows.slice(0, BOARD_SIZE);
     draw();
   };
+  draw();
   board.top().then(show, () => undefined);
 
   const close = (): void => {
@@ -92,29 +102,39 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
     const entry = { name: cleanName(input.value), time: waiting };
     lastName = entry.name;
     mine = entry;
+    sending = true;
     close();
-    // If the board cannot be reached, the time still shows for this visit.
-    board.add(entry).then(show, () => show(addEntry(entries, entry)));
+    const settle = (rows: Entry[]): void => {
+      // A newer run may have been sent since: only the latest one stops the waiting.
+      if (mine === entry) sending = false;
+      show(rows);
+    };
+    // The board falls back to this device by itself. If even that fails, the time still shows for this visit.
+    board.add(entry).then(settle, () => settle(addEntry(entries, entry)));
   });
 
   return {
     finished(time) {
       const rounded = Number(time.toFixed(3));
-      place = placeOf(entries, rounded);
       mine = null;
+      sending = false;
       draw();
-      if (place === null) return;
+      if (!(rounded > 0)) return;
       waiting = rounded;
       form.hidden = false;
       input.value = lastName;
       input.focus();
       input.select();
     },
-    isBest: () => place === 0,
     note() {
-      const placed = place === null ? 'Stage complete' : place === 0 ? 'New best' : `Place ${place + 1} in the top ten`;
-      if (waiting !== null) return `${placed} · Type a name, then Enter · Esc to skip`;
-      return `${placed} · Enter to go again · Esc to leave`;
+      if (waiting !== null) return 'Type a name, then Enter · Esc to skip';
+      if (sending) return 'Sending your time';
+      const keys = 'Enter to go again · Esc to leave';
+      if (!mine) return keys;
+      const place = entries.findIndex((entry) => same(entry, mine!));
+      const placed = place < 0 ? 'Outside the top ten' : place === 0 ? 'Fastest on the board' : `Place ${place + 1} in the top ten`;
+      const fellBack = shared && board.scope !== 'everyone' ? ' · Shared board out of reach, showing this device' : '';
+      return `${placed}${fellBack} · ${keys}`;
     },
     takesKey(e) {
       if (waiting === null || e.target !== input) return false;
@@ -125,7 +145,6 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
       return true;
     },
     reset() {
-      place = null;
       if (waiting !== null) close();
     },
   };

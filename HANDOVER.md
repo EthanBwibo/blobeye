@@ -17,8 +17,10 @@ Reference sites for feel: lusion.co and unseen.co (scrolling and motion), oryzo.
 - Ten sheets on a laptop, seven on a phone. The engine chapter: five sheets, scroll-driven camera, live firing order, exhaust pulses, hold-to-rev, header switch, light and dark themes.
 - The X-ray sheet (sheet 2), on screens wider than 760px only: the paint drains out of the body, leaving a line drawing, and a simplified drivetrain shows in gold with its six parts named.
 - The rally timeline (sheet 8) and the 2004 specs table (sheet 9), on screens wider than 760px only. Every entry and figure is in `docs/FACTS.md` with its source.
-- The Safari stage on sheet 10, the last thing on the page: when the car drives off, the page cuts to a time trial in 3D, seen from a chase camera behind the car, with a 3-2-1 start. One gravel stage of about a minute, arrow keys or WASD, dust, a clock, and a top ten (name and time) kept in `localStorage`. Laptop only; phones get a note instead.
-- Unit tests on the engine model, the car's shape, the handling, the stage, the chase camera, the start, the scenery, the top ten and the drivetrain. Typecheck and production build pass.
+- The Safari stage on sheet 10, the last thing on the page: when the car drives off, the page cuts to a time trial in 3D, seen from a chase camera behind the car, with a 3-2-1 start. One gravel stage of about a minute, arrow keys or WASD, dust, a clock, and a top ten (name and time). Laptop only; phones get a note instead.
+- On the stage: a co-driver's pace notes at the top of the screen, worked out from the road and what is on it; five hazards (rocks on the road, a ford, a narrow bridge, zebra crossing, and a crest that gets the car airborne); three split times, green or red against the player's best run on this device; bronze, silver and gold times, with a line on the end screen for each result; and dawn, midday or dusk light, picked at random for each run.
+- The top ten is shared: a Supabase table, `rally_times`, read and written with `fetch` and the project's publishable key (`VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY` in `.env`; see `.env.example`). Every time is also kept on the device, and when the shared board cannot be reached the device's own top ten is shown instead.
+- Unit tests on the engine model, the car's shape, the handling, the stage, the chase camera, the start, the scenery, the hazards, the pace notes, the splits and medals, the light, the top ten (shared and on the device) and the drivetrain. Typecheck and production build pass.
 - Checked in headless Chrome at 1366×768 and 400×820: all sheets render, no page errors, no sideways scroll, controls respond.
 
 **Not checked**
@@ -28,7 +30,11 @@ Reference sites for feel: lusion.co and unseen.co (scrolling and motion), oryzo.
 - Trees and rocks cannot be hit: the car passes through them.
 - **The timeline and specs sheets have never been seen by a person.** They were checked by tests and build only. In particular, the camera key on the timeline sheet (`ABOVE_TIMELINE` in `src/scene/camera.ts`) tips the view down to lift the car above the timeline panel; the amount is a guess.
 - **The X-ray sheet and the top ten have never been seen by a person, or run in a browser at all.** They were written against their tests and the build. Expect to tune by eye: the camera (`XRAY` in `src/scene/camera.ts`), where the names sit (`labelAt` in `src/car/drivetrain.ts`), and the list and name box (`src/game/rally.css`). The top ten was written for the top-down game and fitted to the 3D one in a merge.
-- **The top ten is on the device only.** The shared board is not built. It plugs in at `openBoard` in `src/game/leaderboard.ts`, where a comment says what it has to do.
+- **The stage's hazards, pace notes, splits, medals, light and shared top ten have never been seen by a person, or run in a browser at all.** They were written against their tests and the build. Expect to tune by eye and by driving: where the hazards are and how hard they bite (`HAZARDS` and the numbers under it in `src/game/hazards.ts`), the medal times (`TARGETS` in `src/game/splits.ts`, set against the tests' scripted driver, not a person), when a call goes up (`NOTES` in `src/game/notes.ts`), the dawn and midday colours (`src/game/rally.css`), and the zebra, bridge and ford as drawn (`src/game/world.ts`).
+- **Reading the shared board has been checked against the live table; sending a time has not.** No test row was put in it. The first real finish is the test.
+- `.env` is not committed. Wherever the site is built for the public, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY` there, or that build keeps its top ten on the device.
+- The shared board trusts the page: anyone can send any name and any time the table allows. The table's own rules (the name's shape, 20 to 600 seconds, read and insert only) are the only guard.
+- On the crest the road is drawn without depth, like everything painted on the ground, so the far side of the hump can show through its near side, and the car's shadow rises with the car in a jump.
 - No real phone, no Safari, no Firefox.
 - Several car facts. See `docs/FACTS.md`.
 
@@ -67,11 +73,15 @@ src/ui/sheets.ts          which sheets are on the page at this width, and the sc
 src/ui/intro.ts           the title card with the sound choice
 src/ui/rallyGate.ts       the way in to the Safari stage: fetches the game on the Safari sheet, starts it when the car has gone
 src/game/handling.ts      how the car drives on gravel (pure, tested)
-src/game/stage.ts         the road, the clock and the best time (pure, tested)
+src/game/stage.ts         the road, the clock, and a run along it with everything that can happen to the car (pure, tested)
+src/game/hazards.ts       what lies on the road and what each does: rocks, ford, bridge, zebra, crest (pure, tested)
+src/game/notes.ts         the co-driver's pace notes, worked out from the road and its hazards (pure, tested)
+src/game/splits.ts        checkpoints, split times against the best run, and the medal times (pure, tested)
+src/game/light.ts         dawn, midday or dusk for a run: the sun and the haze (pure, tested); the colours are in rally.css
 src/game/chase.ts         the chase camera and the 3-2-1 start (pure, tested)
 src/game/scenery.ts       where the trees, rocks and tufts stand (pure, tested)
-src/game/world.ts         the stage in 3D: road, bush, hills, sky, the car and its dust
-src/game/leaderboard.ts   the top ten: its rules, where it is kept, and the hook for a shared board (pure, tested)
+src/game/world.ts         the stage in 3D: road, bush, hills, sky, the hazards, the car, its dust and its spray
+src/game/leaderboard.ts   the top ten: its rules, the shared board in Supabase, and the board on the device it falls back to (tested)
 src/game/boardHud.ts      the top ten on the game's screen, and the box that asks for a name
 src/game/rally.ts         the game's loop, keys and readouts; with world.ts a separate chunk, loaded on demand
 src/car/drivetrain.ts     the X-ray sheet's drivetrain as numbers: simplified, not measured (tested)
@@ -97,6 +107,8 @@ Add a new behaviour by putting the numbers in `model.ts` first, testing them, th
 - **Colours live in CSS.** The scene reads `--paper`, `--ink`, `--gold`, `--fire` via `applyTheme()`. Add a colour as a token in all three theme blocks, never as a literal in TypeScript.
 - **Coordinates.** +z is the front of the car, -x is the car's right, +y is up. Cylinder 1 is front right.
 - **The game's coordinates.** The driving is flat: x and y seen from above, heading 0 along +x, turning right makes it grow. `world.ts` draws that as x and z with y up. Things painted on the ground do not write depth and are drawn in order, so they never flicker against each other.
+- **The time of day's colours** are stage tokens set again on `#rally[data-light]` in `src/game/rally.css`. The game reads its colours from its own screen, not from the page, so a new stage colour needs a value there for dawn and midday as well as in the three theme blocks.
+- **Hazards are placed by distance along the road.** Move the route in `stage.ts` and they move with it, perhaps onto a bend: check `HAZARDS` again. The pace notes follow by themselves.
 - **The drawing runs in slow motion.** `drawingRevsPerSecond` is deliberately far slower than the real rpm. The sound uses real rpm.
 - **Adding a sheet** means a `<section class="view">` in `index.html`, a matching entry in `CAMERA_KEYS`, and new values for the sheet numbers below it in `src/scene/camera.ts` (`HERITAGE_SHEET`, `SPECS_SHEET`, `DRIVE_OFF_SHEET`). Renumber the "Sheet N" labels in the markup too.
 - **Laptop-only sheets** carry the class `laptop` and are hidden below 760px. They keep their number in the story, so on a phone the scroll from "Hold to rev" to the Safari sheet passes through the camera keys of the timeline and the specs table. The "of 10" and "of 7" counts, and the numbers of the sheets after the X-ray, are `on-wide` and `on-narrow` spans.

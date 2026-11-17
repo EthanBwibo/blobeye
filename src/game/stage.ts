@@ -5,6 +5,8 @@
  * The route is invented. It is not a map of any real rally stage.
  */
 import { stepCar, type CarState, type DriveInput } from './handling';
+import { CAR_RADIUS, HAZARDS, KNOCK, LANDING, RAIL_DRAG, RAIL_REACH, WATER_DRAG, groundAt, inWater, roomAt, stepFlight, underAt, zebraAt, type Hazards } from './hazards';
+import { checkpointsOf } from './splits';
 
 export type Spot = readonly [x: number, y: number];
 
@@ -29,7 +31,23 @@ export interface Stage {
   /** Where the car lines up, and where the clock stops, as distances along the road. */
   startAt: number;
   finishAt: number;
+  /** What lies in wait along the road, in road coordinates. */
+  hazards: Hazards;
+  /** The rocks on the road, as places on the ground. */
+  rocks: readonly Obstacle[];
+  /** Where the split times are taken, as distances along the road. */
+  checkpoints: readonly number[];
 }
+
+/** Something solid and round on the ground. */
+export interface Obstacle {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** The road's line alone, which is all that finding a place on it needs. */
+type Road = Pick<Stage, 'points' | 'along' | 'length'>;
 
 export interface Pose {
   x: number;
@@ -38,7 +56,7 @@ export interface Pose {
 }
 
 /** Smooth the route into a road: a Catmull-Rom curve through its points, sampled about every `spacing` metres. */
-export function buildStage(route: readonly Spot[] = ROUTE, scale = ROUTE_SCALE, spacing = 4): Stage {
+export function buildStage(route: readonly Spot[] = ROUTE, scale = ROUTE_SCALE, spacing = 4, hazards: Hazards = HAZARDS): Stage {
   const at = (i: number): Spot => {
     const p = route[Math.min(route.length - 1, Math.max(0, i))]!;
     return [p[0] * scale, p[1] * scale];
@@ -62,11 +80,35 @@ export function buildStage(route: readonly Spot[] = ROUTE, scale = ROUTE_SCALE, 
   }
   const length = along[along.length - 1]!;
   // The road carries on a little past the finish, so there is room to stop.
-  return { points, along, length, halfWidth: 7, startAt: 12, finishAt: length - 45 };
+  const road: Road = { points, along, length };
+  const [startAt, finishAt] = [12, length - 45];
+  return {
+    ...road,
+    halfWidth: 7,
+    startAt,
+    finishAt,
+    hazards,
+    rocks: hazards.rocks.map((rock) => ({ ...placeAt(road, rock.along, rock.across), r: rock.r })),
+    checkpoints: checkpointsOf(startAt, finishAt),
+  };
+}
+
+/** The place on the ground that is `along` the road and `across` metres to the right of its middle. */
+export function placeAt(stage: Road, along: number, across: number): Pose {
+  const { x, y, heading } = poseAt(stage, along);
+  return { x: x - Math.sin(heading) * across, y: y + Math.cos(heading) * across, heading };
+}
+
+/** The zebra, as places on the ground, `time` seconds into the run. `heading` is the way each is walking. */
+export function herdAt(stage: Stage, time: number): (Obstacle & { heading: number })[] {
+  return zebraAt(stage.hazards, time).map((zebra) => {
+    const { x, y, heading } = placeAt(stage, zebra.along, zebra.across);
+    return { x, y, r: stage.hazards.zebra.r, heading: heading + (zebra.facing * Math.PI) / 2 };
+  });
 }
 
 /** The place and direction of the road at a distance along it. */
-export function poseAt(stage: Stage, distance: number): Pose {
+export function poseAt(stage: Road, distance: number): Pose {
   const d = Math.min(stage.length, Math.max(0, distance));
   let i = 0;
   let high = stage.along.length - 2;
@@ -88,6 +130,10 @@ export interface Located {
   along: number;
   /** How far the car is from the middle of the road. */
   offset: number;
+  /** The same, with a side: positive is to the right of the road. */
+  across: number;
+  /** Which way is to the right of the road there. */
+  right: Spot;
 }
 
 /**
@@ -97,7 +143,7 @@ export interface Located {
 export function locate(stage: Stage, x: number, y: number, near: number): Located {
   const from = Math.max(0, near - 10);
   const to = Math.min(stage.points.length - 2, near + 15);
-  let best: Located = { index: from, along: stage.along[from]!, offset: Infinity };
+  let best: Located = { index: from, along: stage.along[from]!, offset: Infinity, across: 0, right: [0, 1] };
   for (let i = from; i <= to; i++) {
     const a = stage.points[i]!;
     const b = stage.points[i + 1]!;
@@ -106,7 +152,11 @@ export function locate(stage: Stage, x: number, y: number, near: number): Locate
     const span = dx * dx + dy * dy;
     const t = span ? Math.min(1, Math.max(0, ((x - a[0]) * dx + (y - a[1]) * dy) / span)) : 0;
     const offset = Math.hypot(x - (a[0] + dx * t), y - (a[1] + dy * t));
-    if (offset < best.offset) best = { index: i, along: stage.along[i]! + Math.sqrt(span) * t, offset };
+    if (offset < best.offset) {
+      const length = Math.sqrt(span) || 1;
+      const right: Spot = [-dy / length, dx / length];
+      best = { index: i, along: stage.along[i]! + length * t, offset, across: (x - a[0]) * right[0] + (y - a[1]) * right[1], right };
+    }
   }
   return best;
 }
@@ -121,16 +171,65 @@ export interface Trial {
   progress: number;
   index: number;
   onRoad: boolean;
+  /** How high the car is above the flat ground, and how fast that is changing. */
+  height: number;
+  rise: number;
+  /** Off the ground, over the crest. Nothing the driver does counts until it lands. */
+  airborne: boolean;
+  /** Seconds off the ground so far, this flight. */
+  aloft: number;
+  /** In the ford. */
+  wet: boolean;
+  /** The clock at each checkpoint passed so far. */
+  splits: number[];
+  /** What happened on the last step, for the dust and the spray. */
+  event: 'splash' | 'knock' | 'scrape' | 'land' | null;
 }
 
 export function newTrial(stage: Stage): Trial {
   const { x, y, heading } = poseAt(stage, stage.startAt);
   const index = locate(stage, x, y, 0).index;
-  return { car: { x, y, heading, vx: 0, vy: 0 }, phase: 'ready', time: 0, progress: stage.startAt, index, onRoad: true };
+  return {
+    car: { x, y, heading, vx: 0, vy: 0 },
+    phase: 'ready',
+    time: 0,
+    progress: stage.startAt,
+    index,
+    onRoad: true,
+    height: groundAt(stage.hazards, stage.startAt),
+    rise: 0,
+    airborne: false,
+    aloft: 0,
+    wet: false,
+    splits: [],
+    event: null,
+  };
 }
 
 const AT_REST: DriveInput = { throttle: 0, brake: 0, steer: 0 };
 const STOPPING: DriveInput = { throttle: 0, brake: 1, steer: 0 };
+
+/**
+ * Run into something round and solid. The car is put back outside it, loses the speed it had into it
+ * (a little bounces back) and some of the rest. Returns null if they do not touch.
+ */
+export function bump(car: CarState, thing: Obstacle): { car: CarState; hard: boolean } | null {
+  const reach = thing.r + CAR_RADIUS;
+  const dx = car.x - thing.x;
+  const dy = car.y - thing.y;
+  const gap = Math.hypot(dx, dy);
+  if (gap >= reach) return null;
+  // Dead centre has no way out: back the way the nose came.
+  const nx = gap > 1e-6 ? dx / gap : -Math.cos(car.heading);
+  const ny = gap > 1e-6 ? dy / gap : -Math.sin(car.heading);
+  const into = car.vx * nx + car.vy * ny;
+  let { vx, vy } = car;
+  if (into < 0) {
+    vx = (vx - into * nx) * KNOCK.keep - into * KNOCK.bounce * nx;
+    vy = (vy - into * ny) * KNOCK.keep - into * KNOCK.bounce * ny;
+  }
+  return { car: { ...car, x: thing.x + nx * reach, y: thing.y + ny * reach, vx, vy }, hard: into < -1 };
+}
 
 /** Advance a run by `dt` seconds. Changes `trial` in place. */
 export function stepTrial(stage: Stage, trial: Trial, input: DriveInput, dt: number): void {
@@ -141,14 +240,70 @@ export function stepTrial(stage: Stage, trial: Trial, input: DriveInput, dt: num
     trial.car = { ...trial.car, vx: 0, vy: 0 };
     return;
   }
-  trial.car = stepCar(trial.car, drive, dt, trial.onRoad);
+  const hazards = stage.hazards;
+  trial.event = null;
+  if (trial.airborne) {
+    // In the air the car goes where it was going.
+    trial.car = { ...trial.car, x: trial.car.x + trial.car.vx * dt, y: trial.car.y + trial.car.vy * dt };
+  } else {
+    let car = stepCar(trial.car, drive, dt, trial.onRoad);
+    if (trial.wet) {
+      const keep = Math.exp(-WATER_DRAG * dt);
+      car = { ...car, vx: car.vx * keep, vy: car.vy * keep };
+    }
+    const herd = hazards.zebra.count && Math.abs(trial.progress - hazards.zebra.at) < 40 ? herdAt(stage, trial.time) : [];
+    for (const thing of [...stage.rocks, ...herd]) {
+      const hit = bump(car, thing);
+      if (!hit) continue;
+      car = hit.car;
+      if (hit.hard) trial.event = 'knock';
+    }
+    trial.car = car;
+  }
 
-  const found = locate(stage, trial.car.x, trial.car.y, trial.index);
+  let found = locate(stage, trial.car.x, trial.car.y, trial.index);
+  // The bridge's rails: a car that strays is held inside them, and scrapes.
+  const room = roomAt(hazards, found.along, stage.halfWidth);
+  const over = Math.abs(found.across) - room;
+  if (!trial.airborne && room < stage.halfWidth && over > 0 && over < RAIL_REACH) {
+    const side = Math.sign(found.across);
+    const [rx, ry] = found.right;
+    const outward = Math.max(0, (trial.car.vx * rx + trial.car.vy * ry) * side);
+    const keep = Math.exp(-RAIL_DRAG * dt);
+    trial.car = {
+      ...trial.car,
+      x: trial.car.x - rx * side * over,
+      y: trial.car.y - ry * side * over,
+      vx: (trial.car.vx - rx * side * outward) * keep,
+      vy: (trial.car.vy - ry * side * outward) * keep,
+    };
+    found = { ...found, across: side * room, offset: room };
+    trial.event = 'scrape';
+  }
   trial.index = found.index;
   trial.progress = found.along;
   trial.onRoad = found.offset <= stage.halfWidth;
+
+  // The crest: the car follows the road up, and leaves it if the road falls away too fast.
+  const flight = stepFlight(trial, underAt(hazards, found.along), Math.hypot(trial.car.vx, trial.car.vy), dt);
+  trial.height = flight.height;
+  trial.rise = flight.rise;
+  trial.airborne = flight.airborne;
+  if (trial.airborne) trial.aloft += dt;
+  // A hop too short to notice costs nothing.
+  if (flight.landed && trial.aloft > 0.15) {
+    trial.car = { ...trial.car, vx: trial.car.vx * LANDING, vy: trial.car.vy * LANDING };
+    trial.event = 'land';
+  }
+  if (!trial.airborne) trial.aloft = 0;
+
+  const wet = !trial.airborne && trial.onRoad && inWater(hazards, found.along);
+  if (wet && !trial.wet && Math.hypot(trial.car.vx, trial.car.vy) > 5) trial.event = 'splash';
+  trial.wet = wet;
+
   if (trial.phase === 'running') {
     trial.time += dt;
+    while (trial.splits.length < stage.checkpoints.length && found.along >= stage.checkpoints[trial.splits.length]!) trial.splits.push(trial.time);
     if (found.along >= stage.finishAt) trial.phase = 'finished';
   }
 }

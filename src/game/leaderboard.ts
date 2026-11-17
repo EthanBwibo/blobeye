@@ -1,7 +1,8 @@
 /**
  * The stage's top ten: a name and a time. The rules are pure functions; `Board` is where the times are kept.
  *
- * Today the times stay on the device. The shared board plugs in at `openBoard`, at the bottom of this file.
+ * `sharedBoard` is the one everyone sees, in a Supabase table. `deviceBoard` is the one on this device,
+ * which the shared board falls back to. `openBoard`, at the bottom of this file, picks between them.
  */
 
 export interface Entry {
@@ -20,10 +21,13 @@ const OLD_BEST_KEY = 'blobeye.rally.best';
 
 const validTime = (time: unknown): time is number => typeof time === 'number' && Number.isFinite(time) && time > 0;
 
-/** A name fit to show: one line, no stray spaces, not too long, never empty. */
+/**
+ * A name fit to show and to send: 1 to 12 letters, digits, spaces, _ or -, which is all the shared table
+ * takes. Accents are dropped from letters, anything else is left out, and an empty name gets a stand-in.
+ */
 export function cleanName(raw: string): string {
-  const name = Array.from(raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()).slice(0, NAME_LENGTH).join('').trim();
-  return name || DEFAULT_NAME;
+  const plain = raw.normalize('NFKD').replace(/\s+/g, ' ').replace(/[^A-Za-z0-9 _-]/g, '');
+  return plain.replace(/ +/g, ' ').trim().slice(0, NAME_LENGTH).trim() || DEFAULT_NAME;
 }
 
 /** Where a time would land on the board, counting from 0, or null if it misses the top ten. An equal time goes below the one already there. */
@@ -60,7 +64,7 @@ export function parseBoard(text: string | null): Entry[] {
 
 /** Where the times are kept. The game only ever talks to this, so one board can take another's place. */
 export interface Board {
-  /** Whose times these are, for the heading above the list. */
+  /** Whose times these are, for the heading above the list. It can change: a shared board says when it has fallen back. */
   readonly scope: string;
   /** The top ten, fastest first. */
   top(): Promise<Entry[]>;
@@ -99,20 +103,89 @@ export function deviceBoard(store: Store | null): Board {
   };
 }
 
+/** The stage the times are for, as the shared table names it. */
+export const STAGE_ID = 'naivasha';
+/** The shared table refuses times outside these, in seconds: no car could set a quicker one, and nobody waits for a slower. */
+export const SHARED_TIMES = { least: 20, most: 600 } as const;
+/** How long to wait for the shared board before falling back, in milliseconds. */
+const PATIENCE = 6000;
+
+/** Rows from the shared table as entries. They come from strangers: anything that is not a name and a possible time is dropped. */
+export function rowsToEntries(rows: unknown): Entry[] {
+  if (!Array.isArray(rows)) return [];
+  let board: Entry[] = [];
+  for (const row of rows as ({ name?: unknown; time_ms?: unknown } | null)[]) {
+    if (!row || typeof row.name !== 'string' || typeof row.time_ms !== 'number' || !Number.isInteger(row.time_ms)) continue;
+    const time = row.time_ms / 1000;
+    if (time >= SHARED_TIMES.least && time <= SHARED_TIMES.most) board = addEntry(board, { name: row.name, time });
+  }
+  return board;
+}
+
+type Send = (url: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>;
+
 /**
- * The board the game uses.
+ * A board shared by everyone, kept in a Supabase table and reached over its REST API with the public key.
+ * The table is `rally_times`: `name`, `time_ms`, `stage`, `created_at`. The key may read and insert, nothing else.
  *
- * HOOK FOR THE SHARED BOARD. To share times between visitors, write a `sharedBoard(url, key): Board` beside
- * `deviceBoard` and return it from here when the project's details are set, for example
- * `import.meta.env.VITE_SUPABASE_URL` and `import.meta.env.VITE_SUPABASE_KEY` (the public key). It needs:
- *   - `scope`: 'everyone'
- *   - `top()`: the ten fastest rows of a `stage_times` table (`name` text, `time` numeric), fastest first
- *   - `add()`: insert one row, then `top()` again
- * Nothing else in the game changes. Three things the shared version must take care of:
- *   - the public key may only read and insert, never change or delete (row level security);
- *   - names and times come from strangers: pass them through `cleanName` and `parseBoard`, and have the
- *     database refuse times no car could set;
- *   - when the network fails, fall back to `deviceBoard` so a time is never lost.
+ * Every time also goes on `device`, the board on this device, so it is never lost. Whenever the shared
+ * board cannot be reached (or will not take the time), the device's own times are shown instead, and
+ * `scope` says so.
+ */
+export function sharedBoard(url: string, key: string, device: Board, send: Send = (to, init) => fetch(to, init)): Board {
+  const table = `${url.replace(/\/+$/, '')}/rest/v1/rally_times`;
+  const headers = { apikey: key, Authorization: `Bearer ${key}` };
+  const waiting = (): { signal?: AbortSignal } => (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? { signal: AbortSignal.timeout(PATIENCE) } : {});
+  let reached = true;
+
+  const read = async (): Promise<Entry[]> => {
+    const query = `select=name,time_ms&stage=eq.${STAGE_ID}&order=time_ms.asc,created_at.asc&limit=${BOARD_SIZE}`;
+    const answer = await send(`${table}?${query}`, { headers, ...waiting() });
+    if (!answer.ok) throw new Error(`The shared board answered ${answer.status}`);
+    return rowsToEntries(await answer.json());
+  };
+
+  return {
+    get scope() {
+      return reached ? 'everyone' : device.scope;
+    },
+    async top() {
+      try {
+        const entries = await read();
+        reached = true;
+        return entries;
+      } catch {
+        reached = false;
+        return device.top();
+      }
+    },
+    async add(entry) {
+      const kept = { name: cleanName(entry.name), time: entry.time };
+      const own = await device.add(kept);
+      try {
+        const time_ms = Math.round(kept.time * 1000);
+        if (!(time_ms >= SHARED_TIMES.least * 1000 && time_ms <= SHARED_TIMES.most * 1000)) throw new Error('Not a time the shared board takes');
+        const answer = await send(table, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+          body: JSON.stringify({ name: kept.name, time_ms, stage: STAGE_ID }),
+          ...waiting(),
+        });
+        if (!answer.ok) throw new Error(`The shared board answered ${answer.status}`);
+        const entries = await read();
+        reached = true;
+        return entries;
+      } catch {
+        reached = false;
+        return own;
+      }
+    },
+  };
+}
+
+/**
+ * The board the game uses: the shared one when the project's details are set (`VITE_SUPABASE_URL` and
+ * `VITE_SUPABASE_KEY` in `.env`, see `.env.example`), and the one on this device otherwise.
  */
 export function openBoard(): Board {
   let store: Store | null = null;
@@ -121,5 +194,8 @@ export function openBoard(): Board {
   } catch {
     /* storage is switched off */
   }
-  return deviceBoard(store);
+  const device = deviceBoard(store);
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const key = import.meta.env.VITE_SUPABASE_KEY;
+  return url && key ? sharedBoard(url, key, device) : device;
 }

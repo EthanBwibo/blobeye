@@ -17,6 +17,8 @@
 #rally .board li i{font-style:normal; color:var(--ink-soft)}
 #rally .board li span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 #rally .board li.me{color:var(--gold)}
+/* a run that missed the ten, under the rest */
+#rally .board li.below{border-top:1px dashed var(--ink-soft); padding-top:3px}
 #rally .board li.none{display:block; color:var(--ink-soft)}
 #rally .name label{display:flex; align-items:center; gap:10px}
 #rally .name input{
@@ -29,4 +31,37 @@
 #rally .call{left:50%; top:22%; transform:translateX(-50%); align-items:center; text-align:center; padding:14px 22px; gap:6px}
 #rally .call b{font-size:56px}
 #rally .call b.gold{color:var(--gold)}
+#rally .call b.silver{color:var(--silver)}
+#rally .call b.bronze{color:var(--bronze)}
+/* the end screen: the line for the result, and the times to beat with the one earned picked out */
+#rally .call strong{font-family:var(--f-display); font-style:italic; font-weight:700; font-size:24px; line-height:1.1; letter-spacing:.02em; text-transform:none}
+#rally .targets{display:flex; flex-wrap:wrap; justify-content:center; gap:4px 14px}
+#rally .targets i{font-style:normal; color:var(--ink-soft)}
+#rally .targets i:empty{display:none}
+#rally .targets i.won{color:var(--ink); font-weight:700; text-decoration:underline; text-underline-offset:3px}
+/* split times under the clock: green ahead of the best run, red behind it */
+#rally .splits{left:20px; top:108px; min-width:190px; gap:3px; font-variant-numeric:tabular-nums}
+#rally .splits span{display:grid; grid-template-columns:1fr auto 4.4em; gap:10px}
+#rally .splits i{font-style:normal; color:var(--ink-soft)}
+#rally .splits u{text-decoration:none}
+#rally .splits em{font-style:normal; text-align:right}
+#rally .splits .ahead em{color:var(--ahead)}
+#rally .splits .behind em{color:var(--fire)}
+/* the co-driver's call, large at the top between the clock and the top ten */
+#rally .pace{left:50%; top:20px; transform:translateX(-50%); align-items:center; text-align:center; padding:10px 22px; gap:4px; max-width:calc(100% - 540px)}
+#rally .pace b{font-size:44px}
+#rally .pace em{font-style:normal; color:var(--ink-soft)}
+
+/* The time of day, picked for each run (src/game/light.ts). Dusk is the stage as the theme colours it,
+   so it has no block here; dawn and midday bring their own colours, the same in both themes. */
+#rally[data-light="dawn"]{
+  --sky:#8E9FC4; --haze:#F2CFC0; --sun:#FFE0BF; --hills:#7A7590; --savannah:#C4B78F; --murram:#A5583C; --murram-edge:#7F4130;
+  --scrub:#8A9462; --acacia:#4E6A42; --dust:#D9AE98; --rock:#837A78; --bark:#4F3E38; --stage-shade:#3E2A26;
+  --water:#7C9DB5; --spray:#EDEFF4; --plank:#9C7E5C; --zebra:#EEE9E2; --stripe:#262022;
+}
+#rally[data-light="midday"]{
+  --sky:#4F93D4; --haze:#D6E6EE; --sun:#FFFFFF; --hills:#8A8E7C; --savannah:#DCC98A; --murram:#BF5C31; --murram-edge:#954423;
+  --scrub:#A2A758; --acacia:#5E7F36; --dust:#E7BB92; --rock:#978878; --bark:#5E4431; --stage-shade:#4B331F;
+  --water:#5FA6C4; --spray:#F2FAFC; --plank:#B08D5E; --zebra:#FAF8F0; --stripe:#1E1B19;
+}
 #rally .call small{font-size:10px; color:var(--ink-soft)}

@@ -32,6 +32,14 @@
   --rock:#8F8170;
   --bark:#5A4130;       /* thorn tree trunks */
   --stage-shade:#4A2E1C; /* the car's shadow on the earth */
+  --water:#6FA3B8;      /* the ford */
+  --spray:#E4F1F4;      /* what the car throws up in it */
+  --plank:#A8875C;      /* the bridge's deck */
+  --zebra:#F4F1E8;
+  --stripe:#231F1C;
+  --ahead:#1F7A3D;      /* a split time quicker than the best run's; slower ones take --fire */
+  --silver:#6E7C93;     /* medals; gold is --gold */
+  --bronze:#9A5B2C;
   --grid:rgba(12,58,138,.09);
   --grid-major:rgba(12,58,138,.16);
   --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
@@ -48,6 +56,7 @@
     --tail-red:#D8342C; --tail-glow:#FF8A70; --ground-shade:#00040F;
     --savannah:#3A3423; --murram:#7C3B22; --murram-edge:#552615; --scrub:#4D5631; --acacia:#2E4322; --dust:#B98562;
     --sky:#1B1930; --haze:#5B4A3A; --sun:#F1E2C0; --hills:#2B241F; --rock:#4A443B; --bark:#2A1C14; --stage-shade:#0B0805;
+    --water:#27475A; --spray:#9FB9C4; --plank:#5A4630; --zebra:#B9B5AA; --stripe:#0E0C0B; --ahead:#6FD08C; --silver:#B9C4D8; --bronze:#D08B55;
     color-scheme:dark;
   }
 }
@@ -59,6 +68,7 @@
     --tail-red:#D8342C; --tail-glow:#FF8A70; --ground-shade:#00040F;
     --savannah:#3A3423; --murram:#7C3B22; --murram-edge:#552615; --scrub:#4D5631; --acacia:#2E4322; --dust:#B98562;
     --sky:#1B1930; --haze:#5B4A3A; --sun:#F1E2C0; --hills:#2B241F; --rock:#4A443B; --bark:#2A1C14; --stage-shade:#0B0805;
+    --water:#27475A; --spray:#9FB9C4; --plank:#5A4630; --zebra:#B9B5AA; --stripe:#0E0C0B; --ahead:#6FD08C; --silver:#B9C4D8; --bronze:#D08B55;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
