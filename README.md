@@ -12,7 +12,7 @@ The first chapter is the flat-four engine: turn it, rev it, and hear why it rumb
 - **Scroll turns the drawing.** Five sheets, five camera angles: three-quarter, plan, front, underside, and one to play with.
 - **The firing order plays live.** Cylinders flash 1-3-2-4 and exhaust pulses travel down the pipes to the collector.
 - **Hold to rev.** The exhaust note is generated in the browser from the same model that drives the drawing.
-- **Drive it.** On the last sheet the car drives off into a top-down gravel time trial: arrow keys or WASD, about a minute, best time kept on your device. Needs a keyboard.
+- **Drive it.** On the last sheet the car drives off into a gravel time trial in 3D, seen from behind the car: arrow keys or WASD, about a minute, best time kept on your device. Needs a keyboard.
 - **Unequal or equal headers.** Switch them and watch the pulses bunch up or even out, and hear the beat change.
 
 ![The underside view, showing pulses arriving unevenly at the collector](docs/screenshot-rumble.png)
