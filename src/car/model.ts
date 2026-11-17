@@ -177,7 +177,11 @@ export const PARTS = {
   /** Door handles, each from z to z, and the height they span. */
   handles: [[-3.0, -6.4], [-18.2, -21.6]],
   handleHeight: [18.5, 19.7],
-  mirror: { x: 21.4, y: 22.9, z: 13.2 },
+  /**
+   * The door mirrors: the middle of the housing, which is 2 out from its middle to its inner edge. Each is held off the
+   * front door on a stalk of `stalk` radius, from a foot `foot` below the belt line.
+   */
+  mirror: { x: 22.3, y: 22.4, z: 13.2, halfWidth: 2.0, stalk: 0.32, foot: 0.55 },
 } as const;
 
 /** How much higher the wing's plank is at `x` across the car than at its ends: a shallow bow, highest in the middle. */
@@ -220,6 +224,13 @@ export function frontAngle(end: 1 | -1, x: number, y: number): number {
     else high = middle;
   }
   return (low + high) / 2;
+}
+
+/** Where a door mirror's stalk leaves the door: on the door skin just below the belt line, under the housing. */
+export function mirrorFoot(): Point {
+  const { z, foot } = PARTS.mirror;
+  const y = lerpAt(BELT, z) - foot;
+  return [sideX(z, y), y, z];
 }
 
 /** Where the centre of the engine sits in the car. */
