@@ -80,6 +80,9 @@ body{
   transition:background .12s, color .12s, border-color .12s;
 }
 .tag.cyl.on{background:var(--fire); border-color:var(--fire); color:var(--paper)}
+/* names on the X-ray sheet's drawing: placed by the scene, hidden until it has */
+.tag.part{visibility:hidden; padding:3px 7px; background:var(--paper); border:1.5px solid var(--gold);
+  text-transform:uppercase; font-size:11px; letter-spacing:.12em}
 .tag.note{color:var(--ink-soft); text-transform:uppercase; font-size:11px; letter-spacing:.12em}
 #nogl{position:fixed; inset:0; display:grid; place-items:center; z-index:0; color:var(--ink-soft);
   font-family:var(--f-mono); font-size:13px; text-align:center; padding:24px}

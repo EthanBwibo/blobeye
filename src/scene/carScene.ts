@@ -25,6 +25,8 @@ export interface Car {
   setBonnet(angle: number): void;
   /** Fade the whole car: 1 is solid, 0 is gone. */
   setOpacity(opacity: number): void;
+  /** Drain the colour out of the car: 0 is painted, 1 is a line drawing on the paper. */
+  setXray(amount: number): void;
   /** Turn the wheels by this angle in radians, as if the car had rolled forward. */
   setRoll(angle: number): void;
   /** Re-read the colours. `token` turns a CSS custom property name into a colour. */
@@ -673,23 +675,42 @@ export function createCar(): Car {
   const pipe = new THREE.CylinderGeometry(tailpipe.radius, tailpipe.radius, 3, 28).rotateX(Math.PI / 2).translate(tailpipe.x, tailpipe.y, -47.6);
   add(pipe, [mat.metal, mat.dark, mat.dark], true);
 
+  /** Every colour on the car, with the colour it drains to on the X-ray sheet and how far it goes. */
+  let paints: { to: THREE.Color; from: THREE.Color; drained: THREE.Color; much: number }[] = [];
+  let xray = 0;
+  const paint = (): void => {
+    for (const p of paints) p.to.copy(p.from).lerp(p.drained, xray * p.much);
+  };
   const applyTheme = (token: (name: string) => THREE.Color): void => {
-    mat.body.uniforms.light!.value = token('--body-light');
-    mat.body.uniforms.mid!.value = token('--body-blue');
-    mat.body.uniforms.shade!.value = token('--body-shade');
-    mat.paint.color = token('--body-blue');
-    mat.shade.color = token('--body-shade');
-    mat.dark.color = token('--body-dark');
-    mat.tyre.color = token('--tyre');
-    mat.line.color = token('--body-line');
-    mat.hull.color = token('--body-line');
-    mat.gold.color = token('--wheel-gold');
-    mat.goldDeep.color = token('--wheel-gold').multiplyScalar(0.55);
-    mat.metal.color = token('--metal');
-    mat.lens.color = token('--paper');
-    mat.tail.color = token('--tail-red');
-    mat.tailGlow.color = token('--tail-glow');
+    const paper = token('--paper');
+    const ink = token('--ink');
+    const fill = (to: THREE.Color, name: string, much = 1, scale = 1) => ({ to, from: token(name).multiplyScalar(scale), drained: paper, much });
+    const edge = (to: THREE.Color) => ({ to, from: token('--body-line'), drained: ink, much: 1 });
+    paints = [
+      fill(mat.body.uniforms.light!.value, '--body-light'),
+      fill(mat.body.uniforms.mid!.value, '--body-blue'),
+      fill(mat.body.uniforms.shade!.value, '--body-shade'),
+      fill(mat.paint.color, '--body-blue'),
+      fill(mat.shade.color, '--body-shade'),
+      fill(mat.dark.color, '--body-dark'),
+      // The tyres keep a trace of their tone, so the outline still stands on something.
+      fill(mat.tyre.color, '--tyre', 0.82),
+      fill(mat.gold.color, '--wheel-gold'),
+      fill(mat.goldDeep.color, '--wheel-gold', 1, 0.55),
+      fill(mat.metal.color, '--metal'),
+      fill(mat.lens.color, '--paper'),
+      fill(mat.tail.color, '--tail-red'),
+      fill(mat.tailGlow.color, '--tail-glow'),
+      edge(mat.line.color),
+      edge(mat.hull.color),
+    ];
     mat.shadow.uniforms.color!.value = token('--ground-shade');
+    paint();
+  };
+  const setXray = (amount: number): void => {
+    if (amount === xray) return;
+    xray = amount;
+    paint();
   };
 
   let shown = 1;
@@ -708,5 +729,5 @@ export function createCar(): Car {
     for (const [hub, side] of hubs) hub.rotation.z = side * angle;
   };
 
-  return { group: car, setBonnet, setOpacity, setRoll, applyTheme };
+  return { group: car, setBonnet, setOpacity, setXray, setRoll, applyTheme };
 }

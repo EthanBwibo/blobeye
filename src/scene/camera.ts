@@ -40,8 +40,40 @@ export const CAMERA_KEYS: readonly CameraKey[] = [
   { at: 6, ...WHOLE_CAR },
 ];
 
-/** Where the camera should be at a scroll position measured in sheets. */
-export function cameraAt(sheet: number): CameraView {
+/** The X-ray sheet: from the car's side and above, so the drivetrain reads as one line from nose to tail. */
+const XRAY: View = { position: [60.5, 28, 19.2], target: [0, 0.5, -9], fov: 20 };
+
+/** On wide screens the X-ray sheet is the second one, between the opening sheet and the dive under the bonnet. */
+export const XRAY_SHEET = 1;
+
+/** A place in the story: the sheet, counted as if the X-ray sheet were not there, and how far the X-ray has come on (0 to 1). */
+export interface Story {
+  sheet: number;
+  xray: number;
+}
+
+/**
+ * Turn the scroll position, measured in sheets on the page, into a place in the story.
+ * The X-ray sheet is a stop of its own: the rest of the story waits on the opening sheet while it comes
+ * on, and it has gone again before the bonnet starts to lift. Without it the two are the same thing.
+ */
+export function storyAt(scroll: number, hasXray: boolean): Story {
+  if (!hasXray) return { sheet: scroll, xray: 0 };
+  const ramp = (from: number, to: number) => smoothstep(Math.min(1, Math.max(0, (scroll - from) / (to - from))));
+  if (scroll <= XRAY_SHEET) return { sheet: Math.min(0, scroll), xray: ramp(XRAY_SHEET - 0.75, XRAY_SHEET - 0.2) };
+  return { sheet: scroll - 1, xray: 1 - ramp(XRAY_SHEET + 0.02, XRAY_SHEET + 0.25) };
+}
+
+/** Where the camera should be at a place in the story: `sheet` as in `Story`, pulled towards the X-ray view by `xray`. */
+export function cameraAt(sheet: number, xray = 0): CameraView {
+  const view = storyCamera(sheet);
+  if (xray <= 0) return view;
+  const blend = (from: number, to: number) => from + (to - from) * xray;
+  const mix = (from: [number, number, number], to: [number, number, number]): [number, number, number] => [blend(from[0], to[0]), blend(from[1], to[1]), blend(from[2], to[2])];
+  return { position: mix(view.position, XRAY.position), target: mix(view.target, XRAY.target), fov: blend(view.fov, XRAY.fov ?? DEFAULT_FOV) };
+}
+
+function storyCamera(sheet: number): CameraView {
   const keys = CAMERA_KEYS;
   const after = keys.findIndex((k) => k.at > sheet);
   const b = keys[after < 0 ? keys.length - 1 : after]!;

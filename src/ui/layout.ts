@@ -1,6 +1,22 @@
 import { NARROW_WIDTH } from '../scene/camera';
 
 /**
+ * The sheets on the page, in order. The X-ray sheet is for wide screens only: on a phone it is taken out
+ * before anything else looks at the page, and the sheets that are left are numbered again.
+ */
+export function initSheets(): { sheets: HTMLElement[]; hasXray: boolean } {
+  const xray = document.getElementById('xraySheet');
+  const hasXray = xray !== null && window.innerWidth > NARROW_WIDTH;
+  if (!hasXray) xray?.remove();
+  const sheets = Array.from(document.querySelectorAll<HTMLElement>('.view'));
+  sheets.forEach((sheet, i) => {
+    for (const el of sheet.querySelectorAll('[data-sheet]')) el.textContent = String(i + 1);
+    for (const el of sheet.querySelectorAll('[data-sheets]')) el.textContent = String(sheets.length);
+  });
+  return { sheets, hasXray };
+}
+
+/**
  * On phones the notes sit over the drawing, so each panel shows its headline and live readout
  * and keeps the rest behind a "More" button. Anything marked `.more` in the markup is the rest.
  * Wide screens show everything and never see the button (see the phone block in styles.css).

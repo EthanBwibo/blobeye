@@ -13,10 +13,11 @@ import {
 import { CAR_CENTRE, ENGINE_BAY, WHEELS } from '../car/model';
 import { ENGINE_FIRST_SHEET, LAST_SHEET, NARROW_WIDTH, cameraAt, cameraDistanceScale, diveDepth, narrowCentre, smoothstep } from './camera';
 import { createCar } from './carScene';
+import { XRAY_LAYER, createDrivetrain } from './drivetrainScene';
 
 export interface EngineScene {
-  /** Draw one frame. `sheet` is the scroll position measured in sheets, 0 at the first. */
-  render(dt: number, sheet: number): void;
+  /** Draw one frame. `sheet` and `xray` are a place in the story: see `storyAt` in `camera.ts`. */
+  render(dt: number, sheet: number, xray?: number): void;
   setHeaders(mode: HeaderMode): void;
   /** `clear` is the share of a narrow screen left above the notes; omit it to keep the last value. */
   resize(clear?: number | null): void;
@@ -36,6 +37,8 @@ export interface EngineScene {
 export interface SceneLabels {
   cylinders: HTMLElement[];
   front: HTMLElement;
+  /** A name for each part of the drivetrain, in the order of `DRIVETRAIN`. Empty where there is no X-ray sheet. */
+  parts: HTMLElement[];
 }
 
 const HEAD_X = 1.95;
@@ -82,6 +85,12 @@ export function createEngineScene(
   car.group.scale.setScalar(CAR_SCALE);
   car.group.position.set(...ENGINE_BAY).multiplyScalar(-CAR_SCALE);
   world.add(car.group);
+
+  // The drivetrain for the X-ray sheet, in the car's units and place.
+  const drivetrain = createDrivetrain();
+  drivetrain.group.scale.copy(car.group.scale);
+  drivetrain.group.position.copy(car.group.position);
+  world.add(drivetrain.group);
 
   function part(
     geometry: THREE.BufferGeometry,
@@ -226,6 +235,7 @@ export function createEngineScene(
     mat.hull.color = ink;
     mat.gold.color = token('--gold');
     car.applyTheme(token);
+    drivetrain.applyTheme(token);
     mat.fire.color = token('--fire');
     for (const f of flashes) f.material.color = token('--fire');
   }
@@ -259,7 +269,12 @@ export function createEngineScene(
   });
 
   function place(el: HTMLElement, x: number, y: number, z: number, show = true): void {
-    scratch.set(x, y, z).project(camera);
+    scratch.set(x, y, z);
+    pin(el, show);
+  }
+  /** Put a label where the point in `scratch` falls on the screen. */
+  function pin(el: HTMLElement, show: boolean): void {
+    scratch.project(camera);
     const px = (scratch.x * 0.5 + 0.5) * width;
     const py = (-scratch.y * 0.5 + 0.5) * height;
     el.style.transform = `translate(${px.toFixed(1)}px,${py.toFixed(1)}px) translate(-50%,-50%)`;
@@ -283,9 +298,9 @@ export function createEngineScene(
   const PULL_AWAY = 9;
   const range = (x: number, from: number, to: number) => smoothstep(Math.min(1, Math.max(0, (x - from) / (to - from))));
 
-  function render(dt: number, sheet: number): void {
+  function render(dt: number, sheet: number, xray = 0): void {
     // Camera: blend between the two nearest keys
-    const view = cameraAt(sheet);
+    const view = cameraAt(sheet, xray);
     want.position.set(...view.position);
     want.target.set(...view.target);
     want.position.sub(want.target).multiplyScalar(cameraDistanceScale(camera.aspect, narrow, clearAbove)).add(want.target);
@@ -311,9 +326,13 @@ export function createEngineScene(
     car.setOpacity(1 - range(depth, 0.7, 0.94));
     engine.visible = depth > 0.18;
     const showLabels = depth > 0.9;
+    // The X-ray sheet: the paint drains out of the body and the drivetrain comes up in gold.
+    car.setXray(xray);
+    drivetrain.setOpacity(xray);
 
     // The whole car turns slowly on the opening sheet, and comes round to face the camera as you scroll on.
-    if (!reducedMotion && sheet < 0.5) turn = (turn + dt * 0.16) % (Math.PI * 2);
+    // It stops turning, and squares up, for the X-ray.
+    if (!reducedMotion && sheet < 0.5 && xray === 0) turn = (turn + dt * 0.16) % (Math.PI * 2);
     const unwound = turn > Math.PI ? turn - Math.PI * 2 : turn;
     // On the last sheet it turns away and drives off. With reduced motion it turns and stays parked.
     const onLast = sheet > LAST_SHEET - 0.03;
@@ -327,7 +346,7 @@ export function createEngineScene(
     const driving = Math.max(0, leaving - TURN_TIME * 0.7);
     const travelled = Math.min(90, 0.5 * PULL_AWAY * driving * driving);
     carGone = travelled > OUT_OF_SIGHT;
-    const heading = sheet < ENGINE_FIRST_SHEET ? unwound * (1 - range(sheet, 0, 0.4)) : AWAY_ANGLE * range(leaving, 0, TURN_TIME);
+    const heading = sheet < ENGINE_FIRST_SHEET ? unwound * (1 - range(sheet, 0, 0.4)) * (1 - xray) : AWAY_ANGLE * range(leaving, 0, TURN_TIME);
     rig.rotation.y = heldTurn ?? heading;
     rig.position.set(carCentre.x + Math.sin(rig.rotation.y) * travelled, carCentre.y, carCentre.z + Math.cos(rig.rotation.y) * travelled);
     car.setRoll(travelled / (WHEELS.radius * CAR_SCALE));
@@ -370,6 +389,20 @@ export function createEngineScene(
     }
 
     renderer.render(scene, camera);
+
+    // The drivetrain goes on last, over a clean depth buffer: it shows through the body but still sorts itself.
+    if (drivetrain.group.visible) {
+      renderer.autoClear = false;
+      renderer.clearDepth();
+      camera.layers.set(XRAY_LAYER);
+      renderer.render(scene, camera);
+      camera.layers.set(0);
+      renderer.autoClear = true;
+    }
+    labels.parts.forEach((label, i) => {
+      scratch.copy(drivetrain.labelPoints[i]!).applyMatrix4(drivetrain.group.matrixWorld);
+      pin(label, xray > 0.75);
+    });
   }
 
   setHeaders(state.mode);

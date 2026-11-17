@@ -1,12 +1,13 @@
 import './styles.css';
 import { ExhaustSynth } from './audio/exhaust';
 import { createEngineState, stepEngine } from './engine/model';
-import { LAST_SHEET } from './scene/camera';
+import { DRIVETRAIN } from './car/drivetrain';
+import { LAST_SHEET, storyAt } from './scene/camera';
 import { createEngineScene, type EngineScene } from './scene/engineScene';
 import { bindControls } from './ui/controls';
 import { initIntro } from './ui/intro';
 import { initRallyGate } from './ui/rallyGate';
-import { clearFraction, initNotes, trackDockHeight } from './ui/layout';
+import { clearFraction, initNotes, initSheets, trackDockHeight } from './ui/layout';
 import { updateReadouts } from './ui/readouts';
 import { initScroll } from './ui/scroll';
 
@@ -17,18 +18,25 @@ const synth = new ExhaustSynth(state);
 const canvas = document.getElementById('gl') as HTMLCanvasElement;
 const cylinderLabels = [1, 2, 3, 4].map((n) => document.getElementById(`t${n}`)!);
 const frontLabel = document.getElementById('tfront')!;
+const { sheets, hasXray } = initSheets();
 initNotes();
-
-const sheets = Array.from(document.querySelectorAll<HTMLElement>('.view'));
+// The names on the X-ray sheet's drawing come from the same list as the parts themselves.
+const partLabels = (hasXray ? DRIVETRAIN : []).map((part) => {
+  const label = document.createElement('div');
+  label.className = 'tag part';
+  label.textContent = part.label;
+  canvas.parentElement!.append(label);
+  return label;
+});
 
 // The drawing needs WebGL. Without it the notes and readouts still work.
 let scene: EngineScene | null = null;
 try {
-  scene = createEngineScene(canvas, state, { cylinders: cylinderLabels, front: frontLabel }, reducedMotion);
+  scene = createEngineScene(canvas, state, { cylinders: cylinderLabels, front: frontLabel, parts: partLabels }, reducedMotion);
 } catch (err) {
   console.warn('3D drawing unavailable:', err);
   document.getElementById('nogl')!.hidden = false;
-  for (const label of [...cylinderLabels, frontLabel]) label.hidden = true;
+  for (const label of [...cylinderLabels, frontLabel, ...partLabels]) label.hidden = true;
 }
 
 bindControls(state, {
@@ -94,9 +102,9 @@ function frame(now: number): void {
   previous = now;
   synth.update();
   if (!playing) {
-    const sheet = currentSheet();
+    const { sheet, xray } = storyAt(currentSheet(), hasXray);
     stepEngine(state, dt, reducedMotion);
-    scene?.render(dt, sheet);
+    scene?.render(dt, sheet, xray);
     updateReadouts(state, scene?.firing ?? [], cylinderLabels);
     // On the last sheet the car drives off, and the stage takes its place.
     rally.update(sheet > LAST_SHEET - 0.03, sheet < LAST_SHEET - 0.1, scene?.carGone ?? false);
