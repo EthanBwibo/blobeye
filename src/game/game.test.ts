@@ -49,6 +49,25 @@ describe('handling', () => {
     expect(carSpeeds(drive(still, { brake: 1 }, 3)).forward).toBeCloseTo(-HANDLING.reverseSpeed, 0);
   });
 
+  it('swings the tail round on the handbrake, for a hairpin', () => {
+    const fast = drive(still, { throttle: 1 }, 3);
+    const steered = drive(fast, { steer: 1 }, 0.5);
+    const pulled = drive(fast, { steer: 1, handbrake: 1 }, 0.5);
+    // The nose comes round further, and the car slides more.
+    expect(pulled.heading).toBeGreaterThan(steered.heading + 0.2);
+    expect(Math.abs(carSpeeds(pulled).sideways)).toBeGreaterThan(Math.abs(carSpeeds(steered).sideways) + 2);
+    // It scrubs off speed too, but less than the brake.
+    const [handbraked, braked] = [carSpeeds(drive(fast, { handbrake: 1 }, 0.5)).forward, carSpeeds(drive(fast, { brake: 1 }, 0.5)).forward];
+    expect(handbraked).toBeLessThan(carSpeeds(fast).forward - 3);
+    expect(handbraked).toBeGreaterThan(braked);
+  });
+
+  it('never reverses on the handbrake, and does nothing with it off', () => {
+    expect(carSpeeds(drive(still, { handbrake: 1 }, 2)).forward).toBe(0);
+    const fast = drive(still, { throttle: 1 }, 3);
+    expect(drive(fast, { steer: 1, handbrake: 0 }, 0.5)).toEqual(drive(fast, { steer: 1 }, 0.5));
+  });
+
   it('keeps the revs between idle and the shift point', () => {
     expect(engineRpm(0)).toBe(900);
     for (let v = 0; v <= 60; v += 0.5) {

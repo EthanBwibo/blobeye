@@ -27,7 +27,7 @@ import { scatter } from './scenery';
 import { MEDALS, formatGap, keepBest, medalFor, parseBestRun, sectorGap, sectorTimes, verdict, type BestRun } from './splits';
 import { formatTime, herdAt, locate, newTrial, stepTrial, type Stage, type Trial } from './stage';
 import { STAGES, buildStageOf, stageById, type StageDef } from './stages';
-import { createTouchPads, tiltSteer, type TouchPads } from './touch';
+import { buzz, buzzFor, createTouchPads, tiltSteer, type TouchPads } from './touch';
 import { createVoice } from './voice';
 import { UNIT, createWorld, type Puff, type World } from './world';
 
@@ -154,8 +154,8 @@ export function startRally(host: RallyHost): Rally {
   root.setAttribute(
     'aria-label',
     touch
-      ? 'Safari stage time trial. Steering pads on the left, Go and Brake on the right.'
-      : 'Safari stage time trial. Arrow keys or W A S D to drive, R to restart, C for the co-driver, G for the ghost, 1 to 3 to pick a stage, Escape to leave.',
+      ? 'Safari stage time trial. A steering wheel bottom left; the handbrake, brake and throttle bottom right.'
+      : 'Safari stage time trial. Arrow keys or W A S D to drive, Space for the handbrake, R to restart, C for the co-driver, G for the ghost, 1 to 3 to pick a stage, Escape to leave.',
   );
   const stageButtons = STAGES.map((def, i) => `<button type="button" class="tool" data-stage="${def.id}"><b>${def.name}</b><small>${touch ? def.blurb : `${i + 1} · ${def.blurb}`}</small></button>`).join('');
   const sectors = stage.checkpoints.length + 1;
@@ -171,6 +171,8 @@ export function startRally(host: RallyHost): Rally {
     <div class="hud gauges"><div class="dial">${revMeterSvg()}</div><div class="readout"><span>Gear</span><b data-gear>1</b><span>km/h</span><b data-speed>0</b></div></div>
     <button type="button" class="hud codriver" data-codriver aria-pressed="true">Co-driver · on</button>
     <div class="side" data-side>
+      <button type="button" class="tool corner touch-only" data-drawer-toggle aria-expanded="false" aria-controls="rally-drawer">Map · sectors</button>
+      <div class="drawer" id="rally-drawer" data-drawer></div>
       <div class="tools" role="group" aria-label="Game controls">
         <button type="button" class="tool" data-tool="ghost" aria-pressed="true">Ghost</button>
         <button type="button" class="tool touch-only" data-tool="tilt" aria-pressed="false">Tilt</button>
@@ -180,7 +182,7 @@ export function startRally(host: RallyHost): Rally {
       </div>
     </div>
     <div class="hud call" data-call aria-live="assertive"><b data-call-big></b><strong data-verdict hidden></strong><span class="targets" data-targets hidden></span><span data-call-small></span><span class="stages" data-stages role="group" aria-label="Stage">${stageButtons}</span><small data-credit hidden>Unofficial fan project. Subaru didn't ask for this.</small></div>
-    <div class="hud keys"><span>Arrows or WASD · drive</span><span>R · restart</span><span>M · sound</span><span>C · co-driver</span><span>G · ghost</span><span>1–3 · stage</span><span>Esc · leave</span></div>
+    <div class="hud keys"><span>Arrows or WASD · drive</span><span>Space · handbrake</span><span>R · restart</span><span>M · sound</span><span>C · co-driver</span><span>G · ghost</span><span>1–3 · stage</span><span>Esc · leave</span></div>
     <div class="turn" data-turn><b>Turn your phone sideways</b><span>The stage is drawn for landscape</span></div>`;
   root.prepend(world.canvas);
   const part = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
@@ -189,6 +191,20 @@ export function startRally(host: RallyHost): Rally {
   const [side, stagesEl, mapEl] = [part('[data-side]'), part('[data-stages]'), part('[data-map]')];
   const [sectorEl, sectorName, sectorTime, sectorGapEl, wrongEl] = [part('[data-sector]'), part('[data-sector-name]'), part('[data-sector-time]'), part('[data-sector-gap]'), part('[data-wrongway]')];
   const [gearEl, speedEl, codriverEl] = [part('[data-gear]'), part('[data-speed]'), part<HTMLButtonElement>('[data-codriver]')];
+  // On a phone only the clock, the next call, a small rev meter and the controls stay on the road. The
+  // sectors, the map, the co-driver switch and the tools wait in a drawer behind a button in the corner.
+  const drawer = part('[data-drawer]');
+  const drawerToggle = part<HTMLButtonElement>('[data-drawer-toggle]');
+  if (touch) drawer.append(part('[data-splits]'), mapEl, codriverEl, part('.tools'));
+  const openDrawer = (open: boolean): void => {
+    root.classList.toggle('open', open);
+    drawerToggle.setAttribute('aria-expanded', String(open));
+    drawerToggle.textContent = open ? 'Close' : 'Map · sectors';
+  };
+  drawerToggle.addEventListener('click', () => {
+    openDrawer(!root.classList.contains('open'));
+    root.focus();
+  });
   const needle = root.querySelector<SVGElement>('[data-needle]')!;
   const revsEl = root.querySelector<SVGElement>('svg.revs')!;
 
@@ -290,6 +306,7 @@ export function startRally(host: RallyHost): Rally {
     wrong = newWrongWay();
     flash = 0;
     shownCalls = '';
+    gearNow = 1;
     voice.hush();
     // Each run gets its own time of day.
     const light = pickLight(Math.random());
@@ -400,25 +417,28 @@ export function startRally(host: RallyHost): Rally {
   };
   root.addEventListener('pointerdown', fill);
 
-  root.querySelector('.tools')!.addEventListener('click', (e) => {
+  part('.tools').addEventListener('click', (e) => {
     const name = (e.target as HTMLElement).closest<HTMLElement>('[data-tool]')?.dataset.tool;
     if (name === 'ghost') toggleGhost();
     else if (name === 'tilt') void toggleTilt();
     else if (name === 'sound') host.toggleSound();
-    else if (name === 'again') restart();
+    else if (name === 'again') {
+      restart();
+      openDrawer(false);
+    }
     else if (name === 'leave') stop();
     if (name !== 'leave') root.focus();
   });
 
   // --- Keys
   const held = new Set<string>();
-  const DRIVE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD']);
+  const DRIVE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space']);
   const STAGE_KEYS = STAGES.map((_, i) => `Digit${i + 1}`);
   const onKeyDown = (e: KeyboardEvent): void => {
     // While a name is being typed, the letters are letters.
     if (board.takesKey(e)) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
-    const known = DRIVE_KEYS.has(e.code) || STAGE_KEYS.includes(e.code) || ['KeyR', 'KeyM', 'KeyC', 'KeyG', 'Escape', 'Enter', 'Space'].includes(e.code);
+    const known = DRIVE_KEYS.has(e.code) || STAGE_KEYS.includes(e.code) || ['KeyR', 'KeyM', 'KeyC', 'KeyG', 'Escape', 'Enter'].includes(e.code);
     if (!known) return;
     // The page behind uses the same keys to turn its sheets.
     e.preventDefault();
@@ -445,16 +465,32 @@ export function startRally(host: RallyHost): Rally {
   const throttleHeld = (): boolean => down('ArrowUp', 'KeyW') || (pads?.read().throttle ?? false);
   const readInput = (dt: number): DriveInput => {
     const keys = (down('ArrowRight', 'KeyD') ? 1 : 0) - (down('ArrowLeft', 'KeyA') ? 1 : 0);
+    const touched = pads?.read();
     if (tiltOn && keys === 0 && tiltNow.heard) {
       // The phone is a wheel: follow it closely, but not every tremor.
       steer += (tiltSteer(tiltNow.beta, tiltNow.gamma, screenAngle()) - steer) * (1 - Math.exp(-dt * 14));
+    } else if (keys === 0 && touched) {
+      // The drawn wheel turns as far as the thumb takes it, and springs back when let go.
+      steer += (touched.steer - steer) * (1 - Math.exp(-dt * 16));
     } else {
-      steer = easeSteer(steer, keys || (pads?.read().steer ?? 0), dt);
+      steer = easeSteer(steer, keys, dt);
     }
     // Until the count reaches Go the pedals do nothing, so the clock cannot start early.
     if (countdown(waited).held) return { throttle: 0, brake: 0, steer };
-    const brake = down('ArrowDown', 'KeyS') || (pads?.read().brake ?? false);
-    return { throttle: throttleHeld() ? 1 : 0, brake: brake ? 1 : 0, steer };
+    const brake = down('ArrowDown', 'KeyS') || (touched?.brake ?? false);
+    const handbrake = down('Space') || (touched?.handbrake ?? false);
+    return { throttle: throttleHeld() ? 1 : 0, brake: brake ? 1 : 0, handbrake: handbrake ? 1 : 0, steer };
+  };
+  /** The gear as the instruments last showed it, and when the phone last buzzed, so it does not buzz on and on. */
+  let gearNow: number | 'R' = 1;
+  let lastBuzz = 0;
+  const feel = (now: number): void => {
+    const gear = gearFor(carSpeeds(trial.car).forward);
+    const ms = trial.phase === 'running' ? buzzFor(trial.event, gearNow, gear) : 0;
+    gearNow = gear;
+    if (!touch || !ms || now - lastBuzz < 0.15) return;
+    lastBuzz = now;
+    buzz(ms);
   };
 
   // --- Dust from the rear wheels, spray from the ford, and a cloud when the car hits something or lands
@@ -681,6 +717,7 @@ export function startRally(host: RallyHost): Rally {
       big = call;
     }
     callEl.hidden = big === '';
+    root.classList.toggle('calling', big !== '');
     setText(callBig, big);
     setText(callSmall, small);
     callSmall.hidden = small === '';
@@ -729,6 +766,7 @@ export function startRally(host: RallyHost): Rally {
       else if (trial.event === 'land') burst(34, 5, 0);
       else if (trial.event === 'scrape' && random() < 0.2) burst(1, 3, 0);
       raiseDust(STEP);
+      feel(now / 1000);
       if (was === 'running') record(recorder, trial.time, { ...trial.car, height: trial.height });
       if (was === 'running' && trial.phase === 'finished') {
         board.finished(trial.time);

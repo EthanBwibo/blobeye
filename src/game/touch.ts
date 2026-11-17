@@ -1,9 +1,10 @@
 /**
- * Driving with a touch screen: steering pads on the left (a left half and a right half), throttle and
- * brake on the right, and steering by tilting the phone as an option.
+ * Driving with a touch screen: a steering wheel bottom left that is dragged left and right and springs
+ * back to centre, and bottom right a handbrake lever, a brake pedal and a throttle pedal. Steering by
+ * tilting the phone is an option. Gear changes and knocks give a short buzz where the phone can.
  *
- * `tiltSteer` is a pure function. `createTouchPads` builds the pads on the game's screen. Part of the
- * game's chunk: nothing here may be imported by the main page.
+ * `tiltSteer`, `wheelSteer` and `buzzFor` are pure functions. `createTouchPads` builds the controls on the
+ * game's screen. Part of the game's chunk: nothing here may be imported by the main page.
  */
 
 /** Tilting the phone this far, in degrees, is full lock. */
@@ -34,99 +35,150 @@ export function tiltSteer(beta: number, gamma: number, screenAngle: number): num
   return Math.max(-1, Math.min(1, past / (FULL_TILT - STEADY)));
 }
 
-/** What the pads are asking for, this moment. */
+/** Turning the wheel to full lock, as it is drawn, in degrees. */
+export const WHEEL_LOCK = 110;
+/** Dragging this share of the wheel's width is full lock. */
+export const WHEEL_REACH = 0.55;
+
+/** How far to steer for a finger dragged `dx` pixels across a wheel `width` pixels wide: -1 to 1. */
+export function wheelSteer(dx: number, width: number): number {
+  if (!Number.isFinite(dx) || !(width > 0)) return 0;
+  return Math.max(-1, Math.min(1, dx / (width * WHEEL_REACH)));
+}
+
+/** How long a buzz is, in milliseconds, for each thing worth feeling. */
+export const BUZZ = { gear: 12, knock: 40, land: 25 } as const;
+
+/**
+ * How long to buzz, in milliseconds, for what just happened to the car: a knock on a rock or a zebra, a
+ * landing, or a change of gear (going into or out of reverse does not count). 0 for nothing.
+ */
+export function buzzFor(event: string | null, gearBefore: number | 'R', gearAfter: number | 'R'): number {
+  if (event === 'knock') return BUZZ.knock;
+  if (event === 'land') return BUZZ.land;
+  return typeof gearBefore === 'number' && typeof gearAfter === 'number' && gearBefore !== gearAfter ? BUZZ.gear : 0;
+}
+
+/** What the controls are asking for, this moment. */
 export interface TouchInput {
-  /** -1, 0 or 1 from the pads. */
+  /** -1 (full left) to 1 (full right), from the wheel. */
   steer: number;
   throttle: boolean;
   brake: boolean;
+  handbrake: boolean;
 }
 
 export interface TouchPads {
   read(): TouchInput;
-  /** Hide the steering pads while the phone itself steers. */
+  /** Hide the wheel while the phone itself steers. */
   setTilt(on: boolean): void;
   /** Let go of everything: the game has lost the screen for a moment. */
   release(): void;
 }
 
+type Pedal = 'throttle' | 'brake' | 'handbrake';
+
+const WHEEL_SVG = `<svg viewBox="0 0 100 100" aria-hidden="true">
+  <circle class="rim" cx="50" cy="50" r="43"/>
+  <path class="spokes" d="M9 54Q30 60 38 58M91 54Q70 60 62 58M50 62V91"/>
+  <circle class="hub" cx="50" cy="56" r="13"/>
+  <path class="mark" d="M50 7v9"/>
+</svg>`;
+const LEVER_SVG = `<svg viewBox="0 0 40 120" aria-hidden="true">
+  <rect class="boot" x="6" y="96" width="28" height="20" rx="4"/>
+  <g class="arm"><rect class="rod" x="15" y="18" width="10" height="84" rx="5"/><rect class="grip" x="12" y="8" width="16" height="38" rx="7"/><circle class="button" cx="20" cy="10" r="4"/></g>
+</svg>`;
+
 /**
- * The pads, on `root`. Each finger is held by the pad it landed on, so a thumb that slides off a pedal still
- * holds it; a thumb on the steering slides from one half to the other.
+ * The controls, on `root`. Each finger is held by the control it landed on, so a thumb that slides off a
+ * pedal still holds it down, and a thumb on the wheel keeps turning it wherever it goes.
  */
 export function createTouchPads(root: HTMLElement): TouchPads {
   const pads = document.createElement('div');
   pads.className = 'pads';
   pads.innerHTML = `
-    <div class="steer" data-steer aria-hidden="true"><span>◀</span><span>▶</span></div>
-    <div class="pedals" aria-hidden="true"><div class="pedal brake" data-pedal="brake">Brake</div><div class="pedal throttle" data-pedal="throttle">Go</div></div>`;
+    <div class="wheel" data-wheel aria-hidden="true">${WHEEL_SVG}</div>
+    <div class="pedals" aria-hidden="true">
+      <div class="handbrake" data-pedal="handbrake">${LEVER_SVG}</div>
+      <div class="pedal brake" data-pedal="brake"><i></i></div>
+      <div class="pedal throttle" data-pedal="throttle"><i></i></div>
+    </div>`;
   root.append(pads);
-  const steerPad = pads.querySelector<HTMLElement>('[data-steer]')!;
-  const [left, right] = Array.from(steerPad.children) as HTMLElement[];
+  const wheel = pads.querySelector<HTMLElement>('[data-wheel]')!;
+  const drawn = wheel.querySelector('svg')!;
 
-  /** Fingers on the steering pad and where across it each one is, and fingers on each pedal. */
-  const steering = new Map<number, number>();
-  const pedals = { throttle: new Set<number>(), brake: new Set<number>() };
+  /** The finger on the wheel and where a straight wheel would be under it, the wheel's turn, and the fingers on each pedal. */
+  let grip: { id: number; from: number } | null = null;
+  let turn = 0;
+  const held: Record<Pedal, Set<number>> = { throttle: new Set(), brake: new Set(), handbrake: new Set() };
 
-  const sideOf = (e: PointerEvent): number => {
-    const box = steerPad.getBoundingClientRect();
-    return e.clientX < box.left + box.width / 2 ? -1 : 1;
-  };
   const paint = (): void => {
-    const sides = new Set(steering.values());
-    left!.classList.toggle('on', sides.has(-1));
-    right!.classList.toggle('on', sides.has(1));
-    for (const el of pads.querySelectorAll<HTMLElement>('[data-pedal]')) el.classList.toggle('on', pedals[el.dataset.pedal as 'throttle' | 'brake'].size > 0);
+    wheel.classList.toggle('on', grip !== null);
+    drawn.style.transform = `rotate(${(turn * WHEEL_LOCK).toFixed(1)}deg)`;
+    for (const el of pads.querySelectorAll<HTMLElement>('[data-pedal]')) el.classList.toggle('on', held[el.dataset.pedal as Pedal].size > 0);
+  };
+  /** Let go, the wheel springs back to the middle (the spring is drawn in rally.css). */
+  const letGoOfWheel = (): void => {
+    grip = null;
+    turn = 0;
   };
 
   const hold = (e: PointerEvent): void => {
-    const target = e.target as HTMLElement;
-    const pedal = target.closest<HTMLElement>('[data-pedal]')?.dataset.pedal as 'throttle' | 'brake' | undefined;
-    const onSteer = target.closest('[data-steer]') !== null;
-    if (!pedal && !onSteer) return;
+    const target = e.target as Element;
+    const pedal = target.closest<HTMLElement>('[data-pedal]')?.dataset.pedal as Pedal | undefined;
+    const onWheel = target.closest('[data-wheel]') !== null && !wheel.hidden;
+    if (!pedal && !onWheel) return;
     e.preventDefault();
     try {
       target.setPointerCapture(e.pointerId);
     } catch {
       /* the finger is still counted */
     }
-    if (pedal) pedals[pedal].add(e.pointerId);
-    else steering.set(e.pointerId, sideOf(e));
+    if (pedal) held[pedal].add(e.pointerId);
+    // A second thumb on the wheel takes it over from where it stands.
+    else grip = { id: e.pointerId, from: e.clientX - turn * wheel.getBoundingClientRect().width * WHEEL_REACH };
     paint();
   };
   const slide = (e: PointerEvent): void => {
-    if (!steering.has(e.pointerId)) return;
-    steering.set(e.pointerId, sideOf(e));
+    if (grip?.id !== e.pointerId) return;
+    turn = wheelSteer(e.clientX - grip.from, wheel.getBoundingClientRect().width);
     paint();
   };
   const lift = (e: PointerEvent): void => {
-    steering.delete(e.pointerId);
-    pedals.throttle.delete(e.pointerId);
-    pedals.brake.delete(e.pointerId);
+    if (grip?.id === e.pointerId) letGoOfWheel();
+    for (const fingers of Object.values(held)) fingers.delete(e.pointerId);
     paint();
   };
   pads.addEventListener('pointerdown', hold);
   pads.addEventListener('pointermove', slide);
   pads.addEventListener('pointerup', lift);
   pads.addEventListener('pointercancel', lift);
-  // A long press must not bring up a menu or select the words on the pedals.
+  // A long press must not bring up a menu.
   pads.addEventListener('contextmenu', (e) => e.preventDefault());
 
   return {
     read() {
-      const sides = new Set(steering.values());
-      return { steer: (sides.has(1) ? 1 : 0) - (sides.has(-1) ? 1 : 0), throttle: pedals.throttle.size > 0, brake: pedals.brake.size > 0 };
+      return { steer: turn, throttle: held.throttle.size > 0, brake: held.brake.size > 0, handbrake: held.handbrake.size > 0 };
     },
     setTilt(on) {
-      steerPad.hidden = on;
-      if (on) steering.clear();
+      wheel.hidden = on;
+      if (on) letGoOfWheel();
       paint();
     },
     release() {
-      steering.clear();
-      pedals.throttle.clear();
-      pedals.brake.clear();
+      letGoOfWheel();
+      for (const fingers of Object.values(held)) fingers.clear();
       paint();
     },
   };
+}
+
+/** A short buzz, where the phone can. Some browsers have no vibration at all, and some refuse it until a tap. */
+export function buzz(ms: number): void {
+  if (ms <= 0 || typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
+  try {
+    navigator.vibrate(ms);
+  } catch {
+    /* no buzz, then */
+  }
 }

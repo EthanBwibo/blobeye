@@ -206,9 +206,8 @@ button{font:inherit; color:inherit; cursor:pointer; -webkit-tap-highlight-color:
 .tach .bar::after{content:""; position:absolute; right:0; top:0; bottom:0; width:12.5%; background:var(--fire); opacity:.45}
 .tach output{font-family:var(--f-mono); font-size:13px; font-variant-numeric:tabular-nums; color:var(--ink); min-width:8ch; text-align:right}
 .toggle{display:none}
-.on-narrow{display:none}
 
-/* rally timeline: a wide panel along the bottom of the sheet, with the car above it (laptop only) */
+/* rally timeline: a wide panel along the bottom of the sheet, with the car above it */
 .view.wide{align-items:flex-end}
 .view.wide > .panel{width:min(100%,1120px); margin-right:clamp(0px,5vw,72px)}
 .years{list-style:none; margin:6px 0 0; padding:0; display:grid; grid-template-columns:repeat(8,minmax(0,1fr))}
@@ -221,7 +220,7 @@ button{font:inherit; color:inherit; cursor:pointer; -webkit-tap-highlight-color:
 .years span{font-size:14px; line-height:1.25}
 .years small{font-family:var(--f-mono); font-size:11px; line-height:1.3; color:var(--ink-soft)}
 
-/* specs table (laptop only) */
+/* specs table */
 .panel.specs{width:min(100%,580px)}
 .specs table{width:100%; border-collapse:collapse; border:1.5px solid var(--ink); font-size:15px; line-height:1.3}
 .specs th,.specs td{padding:8px 10px; text-align:left; vertical-align:top; border-bottom:1px solid var(--grid-major)}
@@ -238,9 +237,17 @@ button{font:inherit; color:inherit; cursor:pointer; -webkit-tap-highlight-color:
   body{font-size:16px}
   .view{align-items:flex-end; padding-block:24px calc(var(--dock-h) + 12px)}
   .view > .panel{margin-left:0}
-  /* the timeline and the specs table are laptop only; the sheets either side keep their numbers (src/ui/sheets.ts) */
-  .view.laptop, .on-wide{display:none}
-  .on-narrow{display:inline}
+  /* every sheet is on a phone too, in the same order: the timeline in two rows of four, the table tighter */
+  .view.wide > .panel{margin-right:0}
+  .years{grid-template-columns:repeat(4,minmax(0,1fr)); row-gap:14px}
+  .years li{padding:12px 6px 0 0}
+  .years b{font-size:22px}
+  .years span{font-size:12px}
+  .years small{font-size:10px}
+  .specs table{font-size:13px}
+  .specs th,.specs td{padding:6px 7px}
+  .specs tbody th{width:auto}
+  .panel.collapsible:not(.open) tr.more{display:none}
   .hero{align-items:flex-end}
   .lede{font-size:17px}
   .body{padding:12px 14px 14px; gap:8px}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FULL_TILT, STEADY, tiltSteer } from './touch';
+import { BUZZ, FULL_TILT, STEADY, WHEEL_REACH, buzzFor, tiltSteer, wheelSteer } from './touch';
 
 describe('steering by tilting the phone', () => {
   // Held sideways with its top to the left (the screen turned 90°), tipped back to about 45°.
@@ -37,5 +37,51 @@ describe('steering by tilting the phone', () => {
     const wheel = tiltSteer(15, -90 + 1e-6, HELD);
     expect(flat).toBeGreaterThan(0.4);
     expect(wheel).toBeCloseTo(flat, 1);
+  });
+});
+
+describe('the steering wheel', () => {
+  it('is straight until it is dragged, and turns the way the finger goes', () => {
+    expect(wheelSteer(0, 120)).toBe(0);
+    expect(wheelSteer(20, 120)).toBeGreaterThan(0);
+    expect(wheelSteer(-20, 120)).toBeLessThan(0);
+    expect(wheelSteer(-20, 120)).toBeCloseTo(-wheelSteer(20, 120));
+  });
+
+  it('turns more the further it is dragged, up to full lock', () => {
+    expect(wheelSteer(30, 120)).toBeGreaterThan(wheelSteer(15, 120));
+    expect(wheelSteer(120 * WHEEL_REACH, 120)).toBe(1);
+    expect(wheelSteer(500, 120)).toBe(1);
+    expect(wheelSteer(-500, 120)).toBe(-1);
+  });
+
+  it('asks the same of a thumb on a small wheel as on a big one', () => {
+    expect(wheelSteer(20, 100)).toBeCloseTo(wheelSteer(40, 200));
+  });
+
+  it('stays straight on nonsense', () => {
+    expect(wheelSteer(NaN, 120)).toBe(0);
+    expect(wheelSteer(30, 0)).toBe(0);
+  });
+});
+
+describe('buzzing', () => {
+  it('buzzes on a knock, on landing and on a change of gear', () => {
+    expect(buzzFor('knock', 3, 3)).toBe(BUZZ.knock);
+    expect(buzzFor('land', 3, 3)).toBe(BUZZ.land);
+    expect(buzzFor(null, 2, 3)).toBe(BUZZ.gear);
+    expect(buzzFor(null, 3, 2)).toBe(BUZZ.gear);
+  });
+
+  it('feels a knock more than a gear change', () => {
+    expect(BUZZ.knock).toBeGreaterThan(BUZZ.gear);
+  });
+
+  it('stays still for nothing, for a scrape or a splash, and going into or out of reverse', () => {
+    expect(buzzFor(null, 3, 3)).toBe(0);
+    expect(buzzFor('scrape', 3, 3)).toBe(0);
+    expect(buzzFor('splash', 3, 3)).toBe(0);
+    expect(buzzFor(null, 1, 'R')).toBe(0);
+    expect(buzzFor(null, 'R', 1)).toBe(0);
   });
 });
