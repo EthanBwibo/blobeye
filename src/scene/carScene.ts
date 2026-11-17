@@ -644,10 +644,10 @@ export function createCar(): Car {
     return corners.flatMap((c, i) => edge(c, corners[(i + 1) % 4]!));
   };
 
-  // --- Nose: large teardrop headlamps under clear covers, grille, lower intake, fog covers, chin and bumper line
+  // --- Nose: large rounded headlamps (two lamps and a reflector in a bright bowl, under a clear lens), grille, lower intake, fog covers, chin and bumper line
   const { headlamp, grille, intake, fogCover } = PARTS;
   for (const side of SIDES) {
-    // Teardrop: tall and round at the outer end where it wraps onto the wing, tapering towards the grille
+    // The lens: tall and round at the outer end where it wraps onto the wing, a little smaller towards the grille
     const middle = (headlamp.outer + headlamp.inner) / 2;
     const half = (headlamp.outer - headlamp.inner) / 2;
     const teardrop: Pair[] = Array.from({ length: 48 }, (_, i) => {
@@ -656,16 +656,22 @@ export function createCar(): Car {
       const s = Math.sin(t);
       const outer = (c + 1) / 2;
       const reach = s >= 0 ? mix(headlamp.innerUp, headlamp.outerUp, outer) : mix(headlamp.innerDown, headlamp.outerDown, outer);
-      const round = (v: number) => Math.sign(v) * Math.abs(v) ** 0.8;
+      const round = (v: number) => Math.sign(v) * Math.abs(v) ** 0.9;
       return [side * (middle + round(c) * half), headlamp.y + round(s) * reach] as const;
     });
-    fill(teardrop, nose, mat.metal);
+    // The housing, dark, and inside it the bright bowl the lamps sit in
+    fill(teardrop, nose, mat.dark);
+    fill(shrink(teardrop, 0.88), nose, mat.metal, 0.36, false);
     for (const [angle, y, r] of headlamp.lamps) {
-      fill(blob(side * angle, y, r, r), nose, mat.lens, 0.4);
-      line(blob(side * angle, y, r * 0.55, r * 0.55, 2, 20).map(([d, h]) => nose(d, h, 0.46)), true);
+      // Each lamp: a dark surround, the lens, and the bulb's ring in the middle of it
+      fill(blob(side * angle, y, r * 1.2, r * 1.2), nose, mat.dark, 0.4, false);
+      fill(blob(side * angle, y, r, r), nose, mat.lens, 0.46);
+      line(blob(side * angle, y, r * 0.5, r * 0.5, 2, 20).map(([d, h]) => nose(d, h, 0.52)), true);
     }
-    // The clear cover: a second line just inside the edge
-    line(shrink(teardrop, 0.9).map(([d, y]) => nose(d, y, 0.46)), true);
+    const { reflector } = headlamp;
+    fill(blob(side * reflector.angle, headlamp.y, reflector.halfWidth, reflector.halfHeight, 3), nose, mat.gold, 0.42);
+    // The clear lens over it all: a second line just inside the edge
+    line(shrink(teardrop, 0.94).map(([d, y]) => nose(d, y, 0.52)), true);
 
     // Fog lamp cover: a round cover set in a dark recess at the corner of the bumper
     fill(blob(side * fogCover.angle, fogCover.y, fogCover.radius, fogCover.radius), nose, mat.dark);

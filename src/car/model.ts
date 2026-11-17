@@ -93,9 +93,11 @@ export const PARTS = {
     strut: { baseFront: -43.0, baseRear: -45.4, topFront: -43.8, topRear: -45.9 },
   },
   headlamp: {
-    inner: 21, outer: 57, y: 15.1, innerUp: 1.5, outerUp: 2.4, innerDown: 1.6, outerDown: 2.3,
+    inner: 20, outer: 59, y: 15.1, innerUp: 1.9, outerUp: 2.8, innerDown: 1.9, outerDown: 2.6,
     /** The two round lamps under the cover, as [angle, height, radius]. */
-    lamps: [[46.5, 15.25, 1.55], [31.5, 14.85, 1.2]],
+    lamps: [[46.5, 15.25, 1.9], [32, 14.95, 1.5]],
+    /** The amber reflector at the outer end, where the lens wraps onto the wing: its angle, and half its width and height. */
+    reflector: { angle: 55.6, halfWidth: 0.6, halfHeight: 1.3 },
   },
   grille: { top: 15.5, bottom: 13.0, topHalf: 17, bottomHalf: 14 },
   intake: { top: 9.3, bottom: 6.5, topHalf: 27, bottomHalf: 23 },
