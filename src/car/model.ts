@@ -148,24 +148,26 @@ export const PARTS = {
     /** The plate on each end: how far it reaches below and above the plank, how far it sweeps back at the top, and its thickness. */
     endPlate: { below: 1.1, above: 1.0, sweep: 1.6, thick: 0.3 },
   },
-  /** A teardrop: round and tall at the outer end, narrowing to a point towards the grille. See `lampOutline`. */
+  /**
+   * The headlamps' insides, in the front view like `HEADLAMP_OUTLINE`: the two round lamps as [x, height, radius]
+   * (the main beam outboard, the projector inboard, which is the round lamp drawn in A), the projector's own
+   * small lens as a share of its lamp's radius, and the amber reflector at the outer end.
+   */
   headlamp: {
-    inner: 20, outer: 59, y: 15.1, innerHalf: 1.9, outerHalf: 2.85, lift: 0.5, power: 2.2, point: true,
-    /** The two round lamps under the lens, as [angle, height, radius]: the main beam outboard, the projector inboard. */
-    lamps: [[46.5, 15.25, 1.9], [32, 14.95, 1.5]],
-    /** The projector's own small lens, as a share of its lamp's radius. */
+    lamps: [[14.6, 15.4, 1.3], [11.86, 14.29, 1.16]],
     projector: 0.6,
-    /** The amber reflector at the outer end, where the lens wraps onto the wing: its angle, and half its width and height. */
-    reflector: { angle: 55.6, halfWidth: 0.6, halfHeight: 1.3 },
+    reflector: { x: 16.45, y: 14.2, halfWidth: 0.3, halfHeight: 0.75 },
   },
   grille: { top: 15.5, bottom: 13.0, topHalf: 17, bottomHalf: 14 },
   intake: { top: 9.3, bottom: 6.5, topHalf: 27, bottomHalf: 23 },
   fogCover: { angle: 43, y: 8.4, radius: 1.9 },
-  /** Squarer than the headlamps, taller at the outer end where it wraps the corner. Two round lamps and a reverse lamp between them. */
+  /**
+   * The tail lamps' insides, in the rear view like `TAIL_LAMP_OUTLINE`: the round lamp low on the inner side as
+   * [x, height, radius], and the clear strip across the top, as its middle and half its width and height.
+   */
   tailLamp: {
-    inner: 27, outer: 60, y: 18.0, innerHalf: 2.1, outerHalf: 2.8, lift: 0.3, power: 3.4, point: false,
-    lamps: [[50.5, 18.0, 1.5], [36.5, 18.0, 1.5]],
-    reverse: { angle: 43.5, halfWidth: 0.55, halfHeight: 1.3 },
+    lamps: [[11.66, 17.21, 0.87]],
+    strip: { x: 14.2, y: 19.6, halfWidth: 2.7, halfHeight: 0.85 },
   },
   plate: { half: 15, top: 19.4, bottom: 16.3 },
   tailpipe: { x: 7.9, y: 6.9, radius: 1.15 },
@@ -185,39 +187,39 @@ export function wingArch(x: number): number {
   return arch * (1 - t * t);
 }
 
-/** The shape of a lamp's lens: see `PARTS.headlamp` and `PARTS.tailLamp`. Angles are in degrees round the corner. */
-export interface LampShape {
-  inner: number;
-  outer: number;
-  /** The height of its middle, and how much higher its outer end sits than its inner end. */
-  y: number;
-  lift: number;
-  /** Half its height at the inner and outer ends. With `point`, the inner end narrows to a rounded point. */
-  innerHalf: number;
-  outerHalf: number;
-  point: boolean;
-  /** 2 is an ellipse; higher is squarer. */
-  power: number;
-}
+/**
+ * The headlamp's outline as A's front view shows it: a closed curve of [x, height] for the lamp on the car's
+ * left, x being the distance from the centre line. Traced at A's scale and turned into car units. The outer
+ * end is at the corner of the nose, so laid on the body (see `frontAngle`) it wraps round onto the wing.
+ */
+export const HEADLAMP_OUTLINE: readonly Pair[] = [
+  [17.04, 13.23], [17.13, 14.18], [17.08, 15.24], [16.98, 16.2], [16.72, 16.89], [16.3, 17.23], [15.77, 17.34],
+  [14.92, 17.34], [14.08, 17.27], [13.34, 17.08], [12.6, 16.75], [11.86, 16.39], [11.11, 16.0], [10.48, 15.62],
+  [9.95, 15.24], [9.74, 14.71], [9.89, 14.08], [10.27, 13.44], [10.9, 13.0], [11.75, 12.85], [12.81, 13.08],
+  [14.5, 13.17], [15.77, 13.19],
+];
 
-/** Half the lens's height at this angle, before its ends are rounded off, and the height of its middle there. */
-export function lampHalfHeight(lamp: LampShape, angle: number): { half: number; middle: number } {
-  const along = Math.min(1, Math.max(0, (angle - lamp.inner) / (lamp.outer - lamp.inner)));
-  const taper = lamp.point ? Math.min(1, 0.18 + 1.3 * Math.sqrt(along)) : 1;
-  return { half: mix(lamp.innerHalf, lamp.outerHalf, along) * taper, middle: lamp.y + lamp.lift * (along - 0.5) };
-}
+/** The tail lamp's outline as A's rear view shows it, as for `HEADLAMP_OUTLINE`: square on the outside, slanting in at the inner edge. */
+export const TAIL_LAMP_OUTLINE: readonly Pair[] = [
+  [17.36, 15.71], [17.55, 16.51], [17.57, 17.57], [17.57, 18.84], [17.55, 19.9], [17.42, 20.58], [17.13, 20.89],
+  [16.62, 21.0], [15.56, 21.0], [14.5, 21.0], [13.65, 20.96], [12.91, 20.81], [12.24, 20.56], [11.64, 20.24],
+  [11.18, 19.94], [10.82, 19.52], [10.61, 18.95], [10.39, 18.25], [10.1, 17.53], [9.78, 16.94], [9.51, 16.3],
+  [9.38, 15.75], [11.11, 15.69], [13.02, 15.69], [14.92, 15.69], [16.41, 15.69],
+];
 
-/** The outline of a lamp's lens on the car's left, as [degrees, height], `n` points round. */
-export function lampOutline(lamp: LampShape, n = 48): Pair[] {
-  const middle = (lamp.outer + lamp.inner) / 2;
-  const half = (lamp.outer - lamp.inner) / 2;
-  const round = (v: number) => Math.sign(v) * Math.abs(v) ** (2 / lamp.power);
-  return Array.from({ length: n }, (_, i) => {
-    const t = (i / n) * Math.PI * 2;
-    const angle = middle + round(Math.cos(t)) * half;
-    const { half: h, middle: y } = lampHalfHeight(lamp, angle);
-    return [angle, y + round(Math.sin(t)) * h] as const;
-  });
+/**
+ * The angle, in degrees, at which `wrapPoint` lands on the nose (end = 1) or tail (end = -1) at height `y`
+ * and at distance `x` from the centre line, as seen from straight ahead or behind. This lays a shape traced
+ * in the front or rear view onto the body: each point keeps its place in that view.
+ */
+export function frontAngle(end: 1 | -1, x: number, y: number): number {
+  let [low, high] = [0, 88];
+  for (let i = 0; i < 16; i++) {
+    const middle = (low + high) / 2;
+    if (Math.abs(wrapPoint(end, (middle * Math.PI) / 180, y)[0]) < x) low = middle;
+    else high = middle;
+  }
+  return (low + high) / 2;
 }
 
 /** Where the centre of the engine sits in the car. */

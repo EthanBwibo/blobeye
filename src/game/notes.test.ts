@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HAZARDS, NO_HAZARDS } from './hazards';
-import { NOTES, bendAt, callAt, corners, gradeOf, paceNotes, type Note } from './notes';
+import { NOTES, bendAt, callAt, cornerNote, corners, gradeOf, paceNotes, type Note } from './notes';
 import { buildStage, type Spot } from './stage';
 
 const stage = buildStage();
@@ -101,11 +101,8 @@ describe('the pace notes', () => {
 });
 
 describe('the call on the screen', () => {
-  const notes: Note[] = [
-    { at: 200, text: 'Left 4' },
-    { at: 240, text: 'Water!' },
-    { at: 600, text: 'Right 3' },
-  ];
+  const corner = (at: number, turn: 'Left' | 'Right', grade: number): Note => cornerNote({ from: at, to: at + 40, turn, grade, change: null });
+  const notes: Note[] = [corner(200, 'Left', 4), { at: 240, text: 'Water!', say: 'Caution, water', sign: { kind: 'water', caution: 1 } }, corner(600, 'Right', 3)];
 
   it('is quiet until the next thing is close', () => {
     expect(callAt(notes, 0)).toBeNull();

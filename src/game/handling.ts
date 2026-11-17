@@ -106,6 +106,13 @@ export function engineRpm(speed: number): number {
   return clamp((SHIFT_RPM * pace) / top, IDLE_RPM, SHIFT_RPM);
 }
 
+/** The gear the car is in at a road speed, as the instruments show it: 1 to 5, or R going backwards. */
+export function gearFor(speed: number): number | 'R' {
+  if (speed < -0.5) return 'R';
+  const i = GEARS.findIndex((g) => Math.abs(speed) < g);
+  return (i < 0 ? GEARS.length - 1 : i) + 1;
+}
+
 /** Keys are all or nothing, so the wheel is eased towards where the keys ask. */
 export function easeSteer(current: number, target: number, dt: number): number {
   const rate = target === 0 ? 9 : 6;
