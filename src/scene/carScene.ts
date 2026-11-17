@@ -94,28 +94,47 @@ function paintMaterial(): THREE.ShaderMaterial {
       light: { value: new THREE.Color() },
       mid: { value: new THREE.Color() },
       shade: { value: new THREE.Color() },
+      /** The clearcoat: the colour of the light it throws back. */
+      gloss: { value: new THREE.Color() },
       low: { value: LOW_BODY },
       opacity: { value: 1 },
     },
     vertexShader: `
       varying vec3 vNormal;
+      varying vec3 vSeenNormal;
+      varying vec3 vSeenFrom;
       varying float vHeight;
       void main() {
         vNormal = normal;
         vHeight = position.y;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vec4 seen = modelViewMatrix * vec4(position, 1.0);
+        vSeenNormal = normalMatrix * normal;
+        vSeenFrom = -seen.xyz;
+        gl_Position = projectionMatrix * seen;
       }`,
     fragmentShader: `
       uniform vec3 light;
       uniform vec3 mid;
       uniform vec3 shade;
+      uniform vec3 gloss;
       uniform float low;
       uniform float opacity;
       varying vec3 vNormal;
+      varying vec3 vSeenNormal;
+      varying vec3 vSeenFrom;
       varying float vHeight;
       void main() {
-        float up = normalize(vNormal).y * (gl_FrontFacing ? 1.0 : -1.0);
+        float facing = gl_FrontFacing ? 1.0 : -1.0;
+        float up = normalize(vNormal).y * facing;
         vec3 tone = up > 0.6 ? light : (up < -0.35 || vHeight < low ? shade : mid);
+        // Clearcoat: a tight highlight from a light above and behind the viewer's shoulder, and a faint
+        // sheen where the paint turns away. Both ride with the camera, so they slide over the body as it turns.
+        vec3 n = normalize(vSeenNormal) * facing;
+        vec3 eye = normalize(vSeenFrom);
+        vec3 lamp = normalize(vec3(0.35, 0.85, 0.4));
+        float glint = pow(max(dot(n, normalize(lamp + eye)), 0.0), 70.0);
+        float sheen = pow(1.0 - max(dot(n, eye), 0.0), 4.0);
+        tone = mix(tone, gloss, min(0.75, 0.6 * glint + 0.14 * sheen));
         gl_FragColor = vec4(tone, opacity);
         #include <colorspace_fragment>
       }`,
@@ -842,6 +861,7 @@ export function createCar(): Car {
       fill(mat.body.uniforms.light!.value, '--body-light'),
       fill(mat.body.uniforms.mid!.value, '--body-blue'),
       fill(mat.body.uniforms.shade!.value, '--body-shade'),
+      fill(mat.body.uniforms.gloss!.value, '--clearcoat'),
       fill(mat.paint.color, '--body-blue'),
       fill(mat.shade.color, '--body-shade'),
       fill(mat.dark.color, '--body-dark'),

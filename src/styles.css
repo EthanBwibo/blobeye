@@ -19,6 +19,7 @@
   --tail-red:#C2231D;   /* tail lamps */
   --tail-glow:#F2775E;  /* the round lamps inside them */
   --ground-shade:#0A2A6B; /* the car's shadow on the sheet */
+  --clearcoat:#EAF2FF;  /* the gloss on the paint where it catches the light */
   --glass:#17384F;      /* the windows' tint */
   --glass-shine:#A9C6E8; /* the highlight that crosses them */
   --plate-white:#F4F4EE; /* number plates: white at the front, yellow at the back */
@@ -59,7 +60,7 @@
     --body-blue:#2B63D6; --body-dark:#050E22; --body-line:#D5E3FF; --wheel-gold:#E6BC5C;
     --body-light:#7FA8FF; --body-shade:#17409A; --tyre:#141C2E; --metal:#93A3C0;
     --tail-red:#D8342C; --tail-glow:#FF8A70; --ground-shade:#00040F;
-    --glass:#0B2236; --glass-shine:#86A9D6;
+    --clearcoat:#D6E4FF; --glass:#0B2236; --glass-shine:#86A9D6;
     --plate-white:#E9E9E2; --plate-yellow:#E6BC18; --plate-ink:#0C0C0C;
     --savannah:#3A3423; --murram:#7C3B22; --murram-edge:#552615; --scrub:#4D5631; --acacia:#2E4322; --dust:#B98562;
     --sky:#1B1930; --haze:#5B4A3A; --sun:#F1E2C0; --hills:#2B241F; --rock:#4A443B; --bark:#2A1C14; --stage-shade:#0B0805;
@@ -73,7 +74,7 @@
   --body-blue:#2B63D6; --body-dark:#050E22; --body-line:#D5E3FF; --wheel-gold:#E6BC5C;
     --body-light:#7FA8FF; --body-shade:#17409A; --tyre:#141C2E; --metal:#93A3C0;
     --tail-red:#D8342C; --tail-glow:#FF8A70; --ground-shade:#00040F;
-    --glass:#0B2236; --glass-shine:#86A9D6;
+    --clearcoat:#D6E4FF; --glass:#0B2236; --glass-shine:#86A9D6;
     --plate-white:#E9E9E2; --plate-yellow:#E6BC18; --plate-ink:#0C0C0C;
     --savannah:#3A3423; --murram:#7C3B22; --murram-edge:#552615; --scrub:#4D5631; --acacia:#2E4322; --dust:#B98562;
     --sky:#1B1930; --haze:#5B4A3A; --sun:#F1E2C0; --hills:#2B241F; --rock:#4A443B; --bark:#2A1C14; --stage-shade:#0B0805;
