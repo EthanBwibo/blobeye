@@ -11,7 +11,7 @@ import {
   type HeaderMode,
 } from '../engine/model';
 import { CAR_CENTRE, ENGINE_BAY, WHEELS } from '../car/model';
-import { ENGINE_FIRST_SHEET, LAST_SHEET, NARROW_WIDTH, cameraAt, cameraDistanceScale, diveDepth, narrowCentre, smoothstep } from './camera';
+import { DRIVE_OFF_SHEET, ENGINE_FIRST_SHEET, NARROW_WIDTH, cameraAt, cameraDistanceScale, diveDepth, narrowCentre, smoothstep } from './camera';
 import { createCar } from './carScene';
 
 export interface EngineScene {
@@ -25,9 +25,9 @@ export interface EngineScene {
   holdTurn(angle: number | null): void;
   /** Lift the bonnet by this angle in radians. 0 shuts it. */
   openBonnet(angle: number): void;
-  /** True once the car has driven off the last sheet. Never true with reduced motion, where it stays parked. */
+  /** True once the car has driven off the Safari sheet. Never true with reduced motion, where it stays parked. */
   readonly carGone: boolean;
-  /** Bring the car back and keep it parked until the visitor leaves the last sheet. */
+  /** Bring the car back and keep it parked until the visitor scrolls back above the Safari sheet. */
   park(): void;
   /** Which cylinders are on their power stroke right now, for the HTML labels. */
   readonly firing: boolean[];
@@ -270,7 +270,7 @@ export function createEngineScene(
   let sway = 0;
   let turn = 0;
   let heldTurn: number | null = null;
-  /** Seconds since the visitor arrived on the last sheet, where the car turns away and drives off. */
+  /** Seconds since the visitor arrived on the Safari sheet, where the car turns away and drives off. */
   let leaving = 0;
   let carGone = false;
   let parked = false;
@@ -315,14 +315,15 @@ export function createEngineScene(
     // The whole car turns slowly on the opening sheet, and comes round to face the camera as you scroll on.
     if (!reducedMotion && sheet < 0.5) turn = (turn + dt * 0.16) % (Math.PI * 2);
     const unwound = turn > Math.PI ? turn - Math.PI * 2 : turn;
-    // On the last sheet it turns away and drives off. With reduced motion it turns and stays parked.
-    const onLast = sheet > LAST_SHEET - 0.03;
+    // On the Safari sheet it turns away and drives off, and it stays gone on the sheet after.
+    // With reduced motion it turns and stays parked.
+    const onLast = sheet > DRIVE_OFF_SHEET - 0.03;
     if (reducedMotion) leaving = onLast ? TURN_TIME : 0;
     else if (onLast) leaving += dt;
-    else if (sheet < LAST_SHEET - 0.1) leaving = 0;
+    else if (sheet < DRIVE_OFF_SHEET - 0.1) leaving = 0;
     if (parked) {
       leaving = 0;
-      parked = sheet > LAST_SHEET - 0.1;
+      parked = sheet > DRIVE_OFF_SHEET - 0.1;
     }
     const driving = Math.max(0, leaving - TURN_TIME * 0.7);
     const travelled = Math.min(90, 0.5 * PULL_AWAY * driving * driving);

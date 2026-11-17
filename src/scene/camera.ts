@@ -20,11 +20,18 @@ export const DEFAULT_FOV = 34;
 /** The engine chapter runs from this sheet to this one. The sheets either side show the whole car. */
 export const ENGINE_FIRST_SHEET = 1;
 export const ENGINE_LAST_SHEET = 5;
-export const LAST_SHEET = 6;
+/** The rally timeline, once the camera has pulled back out of the engine. Wide screens only. */
+export const HERITAGE_SHEET = 6;
+/** The Safari stage: the car turns away and drives off here. */
+export const DRIVE_OFF_SHEET = 7;
+/** The specs table, after the game. Wide screens only. */
+export const LAST_SHEET = 8;
 
 type View = Pick<CameraKey, 'position' | 'target' | 'fov'>;
 /** The whole car, front three-quarter, on a long lens at door-handle height. */
 const WHOLE_CAR: View = { position: [40.3, 2.5, 50.8], target: [0, 1.0, -9.0], fov: 20 };
+/** The same view tipped down, which lifts the car to the top of the sheet and leaves the bottom for the timeline. */
+const ABOVE_TIMELINE: View = { ...WHOLE_CAR, target: [0, -4.0, -9.0] };
 /** Standing in front of the car looking down into the engine bay. */
 const OVER_BONNET: View = { position: [3.5, 10.5, 24], target: [0, 1.2, 0.5], fov: 28 };
 
@@ -37,7 +44,9 @@ export const CAMERA_KEYS: readonly CameraKey[] = [
   { at: 4, position: [4.6, -6.2, 6.8], target: [0, -0.7, -0.5] }, // underside
   { at: 5, position: [-6.2, 2.6, 6.4], target: [0, -0.4, 0] }, // rear three-quarter
   { at: 5.45, ...OVER_BONNET }, // on the way out
-  { at: 6, ...WHOLE_CAR },
+  { at: HERITAGE_SHEET, ...ABOVE_TIMELINE }, // pulled back, with the rally timeline below
+  { at: DRIVE_OFF_SHEET, ...WHOLE_CAR }, // the car drives off into the Safari stage
+  { at: LAST_SHEET, ...WHOLE_CAR }, // the specs table
 ];
 
 /** Where the camera should be at a scroll position measured in sheets. */
@@ -61,7 +70,7 @@ export function cameraAt(sheet: number): CameraView {
  */
 export function diveDepth(sheet: number): number {
   if (sheet <= ENGINE_FIRST_SHEET) return Math.max(0, sheet / ENGINE_FIRST_SHEET);
-  if (sheet >= ENGINE_LAST_SHEET) return Math.max(0, (LAST_SHEET - sheet) / (LAST_SHEET - ENGINE_LAST_SHEET));
+  if (sheet >= ENGINE_LAST_SHEET) return Math.max(0, (HERITAGE_SHEET - sheet) / (HERITAGE_SHEET - ENGINE_LAST_SHEET));
   return 1;
 }
 
