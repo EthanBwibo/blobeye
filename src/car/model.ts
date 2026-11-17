@@ -75,7 +75,56 @@ export const WHEELS = {
   /** Distance from the centre line to the middle of the tyre. */
   track: 16.8,
   width: 5.2,
+  /** How far the spokes' faces sit back from the rim's lip, and the hub further still: the dish. */
+  dish: 0.9,
+  /** How far the tyre's sidewall bulges out past the rim's edge, at its widest. */
+  bulge: 0.3,
 } as const;
+
+/**
+ * The tyre's cross-section as [radius, across], from the inner bead round the tread to the outer bead.
+ * `across` is 0 in the middle of the tyre and +half its width on the outer face. The sidewalls bulge out
+ * past the bead, then roll over a rounded shoulder onto a flat tread.
+ */
+export function tyreProfile(): Pair[] {
+  const { radius: R, rimRadius: rim, width, bulge } = WHEELS;
+  const face = width / 2;
+  const wall = (s: 1 | -1): Pair[] => {
+    const points: Pair[] = [];
+    for (let i = 0; i <= 8; i++) {
+      const t = i / 8;
+      // Up the sidewall from the bead: out to the bulge at about a third of the way, back in towards the shoulder
+      const r = rim - 0.1 + t * (R - 0.55 - (rim - 0.1));
+      points.push([r, s * (face + bulge * Math.sin(Math.PI * Math.min(1, t * 1.4)) - 0.25 * t * t)]);
+    }
+    // The shoulder, rounding onto the tread
+    for (let i = 1; i <= 4; i++) {
+      const a = (i / 4) * (Math.PI / 2);
+      points.push([R - 0.55 + 0.55 * Math.sin(a), s * (face - 0.25 - 0.65 * (1 - Math.cos(a)))]);
+    }
+    return points;
+  };
+  return [...wall(-1), ...wall(1).reverse()];
+}
+
+/**
+ * The rim's lip and barrel as [radius, across]: from deep inside the barrel, forward along it, up over a
+ * rounded lip that stands proud of the tyre's bead, and down to tuck into the bead.
+ */
+export function rimProfile(): Pair[] {
+  const { rimRadius: rim, width } = WHEELS;
+  const face = width / 2;
+  return [
+    [rim - 0.55, face - 2.05],
+    [rim - 0.55, face - 0.45],
+    [rim - 0.7, face - 0.3],
+    [rim - 0.62, face - 0.05],
+    [rim - 0.4, face + 0.12],
+    [rim - 0.12, face + 0.18],
+    [rim + 0.08, face + 0.1],
+    [rim + 0.14, face - 0.15],
+  ];
+}
 
 /**
  * Signature parts. Positions along the car and heights are from A, side view. The parts on the nose and

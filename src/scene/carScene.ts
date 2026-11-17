@@ -13,6 +13,8 @@ import {
   section,
   sideX,
   surfacePoint,
+  rimProfile,
+  tyreProfile,
   wingArch,
   wrapPoint,
   lampOutline,
@@ -360,14 +362,16 @@ export function createCar(): Car {
     dark: flat(),
     /** The panes inside the frames. */
     glass: glassMaterial(),
-    tyre: flat(),
+    /** Rubber: dark and matt, but it still catches a soft sheen from the studio on its sidewalls. */
+    tyre: new THREE.MeshStandardMaterial({ roughness: 0.82, metalness: 0, side: THREE.DoubleSide }),
     /** Edge lines drawn on top of the body. */
     line: new THREE.LineBasicMaterial(),
     /** The same line colour as a surface, drawn inside-out and slightly enlarged, for the outline. */
     hull: new THREE.MeshBasicMaterial({ side: THREE.BackSide }),
-    gold: flat(),
-    /** The sides of the spokes and the inside of the rim, so the wheel has depth. */
-    goldDeep: flat(),
+    /** Metallic gold: the wheels, and the amber reflector in each headlamp. */
+    gold: new THREE.MeshStandardMaterial({ metalness: 1, roughness: 0.3, side: THREE.DoubleSide }),
+    /** The sides of the spokes and the inside of the rim, darker, so the wheel has depth. */
+    goldDeep: new THREE.MeshStandardMaterial({ metalness: 1, roughness: 0.45, side: THREE.DoubleSide }),
     metal: flat(),
     /** Polished chrome: the lamp bowls. It shows nothing but the studio it reflects. */
     chrome: new THREE.MeshStandardMaterial({ metalness: 1, roughness: 0.12, side: THREE.DoubleSide }),
@@ -597,30 +601,43 @@ export function createCar(): Car {
         hub.add(mesh);
         return mesh;
       };
-      // Tyre, with rounded shoulders
-      const tyreProfile = [[rim - 0.1, -face], [R - 0.8, -face], [R, -face + 0.9], [R, face - 0.9], [R - 0.8, face], [rim - 0.1, face]].map(
-        ([r, a]) => new THREE.Vector2(r, a),
-      );
-      hub.add(new THREE.Mesh(turned(new THREE.LatheGeometry(tyreProfile, 56)), mat.tyre));
+      const lathe = (profile: readonly Pair[], segments = 64) =>
+        turned(new THREE.LatheGeometry(profile.map(([r, a]) => new THREE.Vector2(r, a)), segments));
+      // Tyre: bulging sidewalls rolling over rounded shoulders onto the tread
+      hub.add(new THREE.Mesh(lathe(tyreProfile(), 72), mat.tyre));
+      // The sidewall's moulded ring and the tread's grooves
+      line(circle(mix(rim, R, 0.42), face + WHEELS.bulge + 0.04, 64), true, hub);
+      for (const a of [-1.1, 0, 1.1]) line(circle(R + 0.02, a, 72), true, hub);
       // Behind everything: a dark back, then the brake disc
       place(new THREE.Mesh(new THREE.CircleGeometry(rim, 48), mat.dark), face - 2.05);
       place(new THREE.Mesh(new THREE.CircleGeometry(4.1, 48), mat.metal), face - 1.85);
       place(new THREE.Mesh(new THREE.CircleGeometry(1.9, 32), mat.dark), face - 1.83);
-      // The barrel of the rim, and its outer lip standing just proud of the tyre
-      place(new THREE.Mesh(turned(new THREE.CylinderGeometry(rim - 0.55, rim - 0.55, 2.05, 56, 1, true)), mat.goldDeep), face - 1.0);
-      place(new THREE.Mesh(new THREE.RingGeometry(rim - 0.6, rim + 0.05, 56), mat.gold), face + 0.03);
-      // Ten spokes with depth, set back from the tyre face, and a hub
+      // The rim: a deep barrel and a rounded lip standing proud of the tyre's bead
+      hub.add(new THREE.Mesh(lathe(rimProfile()), mat.gold));
+      // Ten spokes, set back from the lip by the dish and sloping down into a hub set deeper still
+      const { dish } = WHEELS;
       const spokeShape = new THREE.Shape([new THREE.Vector2(-0.3, 0.9), new THREE.Vector2(0.3, 0.9), new THREE.Vector2(0.5, rim - 0.5), new THREE.Vector2(-0.5, rim - 0.5)]);
-      const spokeGeometry = new THREE.ExtrudeGeometry(spokeShape, { depth: 0.6, bevelEnabled: false });
+      const spokeGeometry = new THREE.ExtrudeGeometry(spokeShape, { depth: 0.6, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.08, bevelSegments: 2 });
+      const spokeFace = face - dish;
       for (let i = 0; i < 10; i++) {
-        const spoke = place(new THREE.Mesh(spokeGeometry, [mat.gold, mat.goldDeep]), face - 1.35);
+        const spoke = place(new THREE.Mesh(spokeGeometry, [mat.gold, mat.goldDeep]), spokeFace - 0.68);
         spoke.rotation.z = (i / 10) * Math.PI * 2;
+        // Lean each spoke so its outer end rises towards the lip: the concave face of the wheel
+        spoke.rotateX(0.06);
       }
-      place(new THREE.Mesh(turned(new THREE.CylinderGeometry(1.4, 1.4, 0.8, 28)), [mat.goldDeep, mat.gold, mat.gold]), face - 0.85);
-      line(circle(rim + 0.05, face + 0.05), true, hub);
-      line(circle(rim - 0.6, face + 0.05), true, hub);
+      const hubFace = spokeFace - 0.35;
+      place(new THREE.Mesh(turned(new THREE.CylinderGeometry(1.4, 1.5, 0.8, 32)), [mat.goldDeep, mat.gold, mat.gold]), hubFace - 0.4);
+      // Five wheel nuts round a centre cap
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 + Math.PI / 2;
+        const nut = place(new THREE.Mesh(turned(new THREE.CylinderGeometry(0.2, 0.2, 0.3, 6)), mat.chrome), hubFace + 0.1);
+        nut.position.x = Math.cos(a) * 0.95;
+        nut.position.y = Math.sin(a) * 0.95;
+      }
+      place(new THREE.Mesh(new THREE.SphereGeometry(0.5, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI / 2), mat.chrome), hubFace);
+      line(circle(rim + 0.1, face + 0.13), true, hub);
+      line(circle(rim - 0.66, face - 0.2), true, hub);
       line(circle(4.1, face - 1.82, 40), true, hub);
-      line(circle(0.6, face - 0.43, 20), true, hub);
     }
   }
 
