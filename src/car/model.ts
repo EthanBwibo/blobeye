@@ -99,17 +99,25 @@ export const PARTS = {
     /** The plate on each end: how far it reaches below and above the plank, how far it sweeps back at the top, and its thickness. */
     endPlate: { below: 1.1, above: 1.0, sweep: 1.6, thick: 0.3 },
   },
+  /** A teardrop: round and tall at the outer end, narrowing to a point towards the grille. See `lampOutline`. */
   headlamp: {
-    inner: 20, outer: 59, y: 15.1, innerUp: 1.9, outerUp: 2.8, innerDown: 1.9, outerDown: 2.6,
-    /** The two round lamps under the cover, as [angle, height, radius]. */
+    inner: 20, outer: 59, y: 15.1, innerHalf: 1.9, outerHalf: 2.85, lift: 0.5, power: 2.2, point: true,
+    /** The two round lamps under the lens, as [angle, height, radius]: the main beam outboard, the projector inboard. */
     lamps: [[46.5, 15.25, 1.9], [32, 14.95, 1.5]],
+    /** The projector's own small lens, as a share of its lamp's radius. */
+    projector: 0.6,
     /** The amber reflector at the outer end, where the lens wraps onto the wing: its angle, and half its width and height. */
     reflector: { angle: 55.6, halfWidth: 0.6, halfHeight: 1.3 },
   },
   grille: { top: 15.5, bottom: 13.0, topHalf: 17, bottomHalf: 14 },
   intake: { top: 9.3, bottom: 6.5, topHalf: 27, bottomHalf: 23 },
   fogCover: { angle: 43, y: 8.4, radius: 1.9 },
-  tailLamp: { inner: 27, outer: 60, y: 18.0, halfHeight: 2.6, lamps: [[50.5, 18.0, 1.5], [36.5, 18.0, 1.5]] },
+  /** Squarer than the headlamps, taller at the outer end where it wraps the corner. Two round lamps and a reverse lamp between them. */
+  tailLamp: {
+    inner: 27, outer: 60, y: 18.0, innerHalf: 2.1, outerHalf: 2.8, lift: 0.3, power: 3.4, point: false,
+    lamps: [[50.5, 18.0, 1.5], [36.5, 18.0, 1.5]],
+    reverse: { angle: 43.5, halfWidth: 0.55, halfHeight: 1.3 },
+  },
   plate: { half: 15, top: 19.4, bottom: 16.3 },
   tailpipe: { x: 7.9, y: 6.9, radius: 1.15 },
   /** The side windows: where their front and rear edges meet the belt and the roof, and the middle of the B pillar. */
@@ -126,6 +134,41 @@ export function wingArch(x: number): number {
   const { arch, halfWidth } = PARTS.wing;
   const t = Math.min(1, Math.abs(x) / halfWidth);
   return arch * (1 - t * t);
+}
+
+/** The shape of a lamp's lens: see `PARTS.headlamp` and `PARTS.tailLamp`. Angles are in degrees round the corner. */
+export interface LampShape {
+  inner: number;
+  outer: number;
+  /** The height of its middle, and how much higher its outer end sits than its inner end. */
+  y: number;
+  lift: number;
+  /** Half its height at the inner and outer ends. With `point`, the inner end narrows to a rounded point. */
+  innerHalf: number;
+  outerHalf: number;
+  point: boolean;
+  /** 2 is an ellipse; higher is squarer. */
+  power: number;
+}
+
+/** Half the lens's height at this angle, before its ends are rounded off, and the height of its middle there. */
+export function lampHalfHeight(lamp: LampShape, angle: number): { half: number; middle: number } {
+  const along = Math.min(1, Math.max(0, (angle - lamp.inner) / (lamp.outer - lamp.inner)));
+  const taper = lamp.point ? Math.min(1, 0.18 + 1.3 * Math.sqrt(along)) : 1;
+  return { half: mix(lamp.innerHalf, lamp.outerHalf, along) * taper, middle: lamp.y + lamp.lift * (along - 0.5) };
+}
+
+/** The outline of a lamp's lens on the car's left, as [degrees, height], `n` points round. */
+export function lampOutline(lamp: LampShape, n = 48): Pair[] {
+  const middle = (lamp.outer + lamp.inner) / 2;
+  const half = (lamp.outer - lamp.inner) / 2;
+  const round = (v: number) => Math.sign(v) * Math.abs(v) ** (2 / lamp.power);
+  return Array.from({ length: n }, (_, i) => {
+    const t = (i / n) * Math.PI * 2;
+    const angle = middle + round(Math.cos(t)) * half;
+    const { half: h, middle: y } = lampHalfHeight(lamp, angle);
+    return [angle, y + round(Math.sin(t)) * h] as const;
+  });
 }
 
 /** Where the centre of the engine sits in the car. */

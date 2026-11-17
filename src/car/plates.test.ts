@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PARTS, SIDE_TOP, lerpAt, topHalfWidth, wingArch } from './model';
+import { PARTS, SIDE_TOP, lampHalfHeight, lampOutline, lerpAt, topHalfWidth, wingArch } from './model';
 import { PLATES, PLATE_WORDS, pickPlate } from './plates';
 
 describe('headlamps', () => {
@@ -13,10 +13,41 @@ describe('headlamps', () => {
     expect(headlamp.reflector.angle - headlamp.reflector.halfWidth / PER_DEGREE).toBeGreaterThan(outer![0] + (outer![2] * 1.2) / PER_DEGREE);
     expect(headlamp.reflector.angle + headlamp.reflector.halfWidth / PER_DEGREE).toBeLessThan(headlamp.outer);
     expect(headlamp.inner).toBeGreaterThan(grille.topHalf);
-    for (const [, y, r] of headlamp.lamps) {
-      expect(y + r).toBeLessThan(headlamp.y + headlamp.outerUp);
-      expect(y - r).toBeGreaterThan(headlamp.y - headlamp.outerDown);
+    for (const [angle, y, r] of headlamp.lamps) {
+      const { half, middle } = lampHalfHeight(headlamp, angle);
+      expect(y + r * 1.2).toBeLessThan(middle + half);
+      expect(y - r * 1.2).toBeGreaterThan(middle - half);
     }
+    expect(headlamp.projector).toBeLessThan(1);
+  });
+  it('are teardrops: tall and round outboard, narrowing to a point towards the grille', () => {
+    const outline = lampOutline(headlamp);
+    const span = (from: number, to: number) => {
+      const ys = outline.filter(([d]) => d >= from && d <= to).map(([, y]) => y);
+      return Math.max(...ys) - Math.min(...ys);
+    };
+    expect(span(headlamp.inner, headlamp.inner + 3)).toBeLessThan(span(headlamp.outer - 15, headlamp.outer) / 2);
+    expect(Math.min(...outline.map(([d]) => d))).toBeCloseTo(headlamp.inner, 5);
+    expect(Math.max(...outline.map(([d]) => d))).toBeCloseTo(headlamp.outer, 5);
+  });
+});
+
+describe('tail lamps', () => {
+  const { tailLamp } = PARTS;
+  it('keep both lamp bowls and the reverse lamp inside the lens, clear of each other', () => {
+    for (const [angle, y, r] of tailLamp.lamps) {
+      const { half, middle } = lampHalfHeight(tailLamp, angle);
+      expect(y + r * 1.2).toBeLessThan(middle + half);
+      expect(y - r * 1.2).toBeGreaterThan(middle - half);
+    }
+    const PER_DEGREE = 0.36;
+    const [outer, inner] = tailLamp.lamps;
+    const { reverse } = tailLamp;
+    expect((outer[0] - reverse.angle) * PER_DEGREE).toBeGreaterThan(outer[2] * 1.2 + reverse.halfWidth);
+    expect((reverse.angle - inner[0]) * PER_DEGREE).toBeGreaterThan(inner[2] * 1.2 + reverse.halfWidth);
+  });
+  it('are taller at the outer end, where they wrap the corner', () => {
+    expect(lampHalfHeight(tailLamp, tailLamp.outer).half).toBeGreaterThan(lampHalfHeight(tailLamp, tailLamp.inner).half);
   });
 });
 
