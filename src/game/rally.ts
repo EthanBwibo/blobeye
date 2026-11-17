@@ -398,7 +398,8 @@ export function startRally(host: RallyHost): Rally {
       row.classList.toggle('flash', fresh && i === done.length - 1);
     });
     const last = done.length - 1;
-    if (!fresh || last < 0) return;
+    // On the finish the end screen takes the middle; the row still flashes.
+    if (!fresh || last < 0 || trial.phase === 'finished') return;
     const gap = sectorGap(ghost, last, done[last]!);
     setText(sectorName, `Sector ${last + 1}`);
     setText(sectorTime, formatTime(done[last]!));
