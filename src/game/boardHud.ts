@@ -31,6 +31,12 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
   const panel = document.createElement('div');
   panel.className = 'hud board';
   const heading = document.createElement('span');
+  heading.className = 'heading';
+  const title = document.createElement('span');
+  title.textContent = 'Top ten';
+  /** Which board is in use: the shared one, or this device's own. */
+  const where = document.createElement('small');
+  heading.append(title, where);
   const list = document.createElement('ol');
   panel.append(heading, list);
   root.append(panel);
@@ -64,7 +70,9 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
   let lastName = '';
 
   const draw = (): void => {
-    heading.textContent = `Top ten · ${board.scope}`;
+    const online = board.scope === 'everyone';
+    where.textContent = online ? 'Online' : 'This device only';
+    where.className = online ? 'online' : 'local';
     const line = (place: string, entry: Entry): HTMLLIElement => {
       const row = document.createElement('li');
       // Names are text from a stranger: never markup.
