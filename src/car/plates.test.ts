@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PARTS } from './model';
+import { PARTS, SIDE_TOP, lerpAt, wingArch } from './model';
 import { PLATES, PLATE_WORDS, pickPlate } from './plates';
 
 describe('headlamps', () => {
@@ -17,6 +17,26 @@ describe('headlamps', () => {
       expect(y + r).toBeLessThan(headlamp.y + headlamp.outerUp);
       expect(y - r).toBeGreaterThan(headlamp.y - headlamp.outerDown);
     }
+  });
+});
+
+describe('rear wing', () => {
+  const { wing } = PARTS;
+  it('is bowed: highest in the middle, level with its ends at the plates, the same on both sides', () => {
+    expect(wingArch(0)).toBe(wing.arch);
+    expect(wingArch(wing.halfWidth)).toBe(0);
+    expect(wingArch(-5)).toBe(wingArch(5));
+    expect(wingArch(4)).toBeGreaterThan(wingArch(9));
+    expect(wingArch(99)).toBe(0);
+  });
+  it('stands tall, with daylight under the plank and under the end plates', () => {
+    const deck = Math.max(lerpAt(SIDE_TOP, wing.front), lerpAt(SIDE_TOP, wing.rear));
+    expect(wing.under - deck).toBeGreaterThan(5);
+    expect(wing.under - wing.endPlate.below - deck).toBeGreaterThan(2);
+  });
+  it('has slim uprights set in from the end plates', () => {
+    expect(wing.strut.halfThick * 2).toBeLessThan(0.5);
+    expect(wing.upright + wing.strut.halfThick).toBeLessThan(wing.halfWidth - 3);
   });
 });
 
