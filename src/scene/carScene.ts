@@ -17,6 +17,37 @@ import {
   type Pair,
   type Point,
 } from '../car/model';
+import { PLATES, pickPlate } from '../car/plates';
+
+/** The word on the plates: picked once for each load of the page, so the drawing and the game agree. */
+const PLATE_WORD = pickPlate(Math.random());
+
+/** A number plate as a picture: a flat colour, a thin border and the word. Drawn again whenever the colours change. */
+function plateFace(): { texture: THREE.CanvasTexture; paint(ground: string, ink: string): void } {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const paint = (ground: string, ink: string): void => {
+    const pen = canvas.getContext('2d');
+    if (!pen) return;
+    pen.fillStyle = ground;
+    pen.fillRect(0, 0, canvas.width, canvas.height);
+    pen.strokeStyle = ink;
+    pen.lineWidth = 6;
+    pen.strokeRect(7, 7, canvas.width - 14, canvas.height - 14);
+    pen.fillStyle = ink;
+    pen.font = '700 86px "Barlow Condensed", "Arial Narrow", Arial, sans-serif';
+    pen.textAlign = 'center';
+    pen.textBaseline = 'middle';
+    // Spaced out like pressed letters, and squeezed to fit if the word is a long one.
+    const letters = PLATE_WORD.split('').join('\u2009');
+    pen.fillText(letters, canvas.width / 2, canvas.height / 2 + 6, canvas.width - 56);
+    texture.needsUpdate = true;
+  };
+  return { texture, paint };
+}
 
 export interface Car {
   /** The car in its own units (100 long, ground at y = 0). The caller scales and places it. */
@@ -290,6 +321,12 @@ export function createCar(): Car {
     tail: flat(),
     tailGlow: flat(),
     shadow: shadowMaterial(),
+  };
+  const plates = { front: plateFace(), rear: plateFace() };
+  /** The plates keep their own colours, so they are not among the paints above: they fade out on the X-ray sheet instead. */
+  const plateMat = {
+    front: new THREE.MeshBasicMaterial({ map: plates.front.texture }),
+    rear: new THREE.MeshBasicMaterial({ map: plates.rear.texture }),
   };
 
   const car = new THREE.Group();
@@ -667,6 +704,14 @@ export function createCar(): Car {
   line(sweep(tail, -68, 68, 14.3)); // the bumper, running round to each rear arch
   fill(trapezoid(plate.half, plate.top, plate.half - 1, plate.bottom), tail, mat.shade);
   line(shrink(trapezoid(plate.half, plate.top, plate.half - 1, plate.bottom), 0.82).map(([d, y]) => tail(d, y, 0.36)), true);
+  // Number plates: flat, standing just proud of the bumper at the front and of the recess at the back
+  for (const [end, material, size] of [[1, plateMat.front, PLATES.front], [-1, plateMat.rear, PLATES.rear]] as const) {
+    const at = (end > 0 ? nose : tail)(0, size.y, 0.55);
+    const face = new THREE.PlaneGeometry(size.width, size.height);
+    if (end < 0) face.rotateY(Math.PI);
+    const plate = add(face.translate(0, size.y, at.z), material);
+    plate.add(new THREE.LineSegments(new THREE.EdgesGeometry(face), mat.line));
+  }
   // Exhaust tip, on the car's left
   const pipe = new THREE.CylinderGeometry(tailpipe.radius, tailpipe.radius, 3, 28).rotateX(Math.PI / 2).translate(tailpipe.x, tailpipe.y, -47.6);
   add(pipe, [mat.metal, mat.dark, mat.dark], true);
@@ -701,18 +746,32 @@ export function createCar(): Car {
       edge(mat.hull.color),
     ];
     mat.shadow.uniforms.color!.value = token('--ground-shade');
+    const css = (name: string) => `#${token(name).getHexString()}`;
+    plates.front.paint(css('--plate-white'), css('--plate-ink'));
+    plates.rear.paint(css('--plate-yellow'), css('--plate-ink'));
     paint();
+  };
+  let shown = 1;
+  /** The plates go with the car when it fades, and with its colour when that drains. */
+  const showPlates = (): void => {
+    const opacity = shown * (1 - xray);
+    for (const material of Object.values(plateMat)) {
+      material.transparent = opacity < 1;
+      material.opacity = opacity;
+      material.visible = opacity > 0.001;
+    }
   };
   const setXray = (amount: number): void => {
     if (amount === xray) return;
     xray = amount;
     paint();
+    showPlates();
   };
 
-  let shown = 1;
   const setOpacity = (opacity: number): void => {
     if (opacity === shown) return;
     shown = opacity;
+    showPlates();
     car.visible = opacity > 0.001;
     for (const material of Object.values(mat)) {
       // Each part still hides what is behind it, so the fading car does not show its own insides.
