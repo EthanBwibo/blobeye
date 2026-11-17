@@ -70,6 +70,8 @@ export interface Car {
 }
 
 const SIDES = [1, -1] as const;
+/** How wide a window's frame is: along the car at each end of the pane, and round the body above and below it (in places round the ring). */
+const FRAME = { ends: 0.7, round: 0.22 } as const;
 const OUTLINE = 0.22;
 const DEGREE = Math.PI / 180;
 /** Roughly how far one degree round the nose or tail is, in car units. */
@@ -121,6 +123,41 @@ function paintMaterial(): THREE.ShaderMaterial {
     polygonOffset: true,
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
+  });
+}
+
+/**
+ * The windows: tinted glass with a soft band of light that drifts slowly across it. `time` is in seconds;
+ * the band stands still if it is never moved on.
+ */
+function glassMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { tint: { value: new THREE.Color() }, shine: { value: new THREE.Color() }, opacity: { value: 1 }, time: { value: 0 } },
+    vertexShader: `
+      varying vec3 vPlace;
+      void main() {
+        vPlace = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      uniform vec3 tint;
+      uniform vec3 shine;
+      uniform float opacity;
+      uniform float time;
+      varying vec3 vPlace;
+      float band(float at, float width) {
+        return smoothstep(0.0, width * 0.4, at) * (1.0 - smoothstep(width * 0.6, width, at));
+      }
+      void main() {
+        // A slanted stripe, the same slant on every pane, so it reads as one reflection passing over the car.
+        float across = fract((vPlace.z * 0.7 + vPlace.y * 1.5 + abs(vPlace.x) * 0.4) / 70.0 - time * 0.05);
+        float light = 0.42 * band(across, 0.16) + 0.22 * band(fract(across + 0.27), 0.05);
+        // A little paler towards the top of each pane, as glass is against the sky.
+        vec3 tone = mix(tint, shine, 0.1 * smoothstep(18.0, 27.0, vPlace.y) + light);
+        gl_FragColor = vec4(tone, opacity);
+        #include <colorspace_fragment>
+      }`,
+    side: THREE.DoubleSide,
   });
 }
 
@@ -337,8 +374,10 @@ export function createCar(): Car {
     /** The paint's middle and darkest tones as plain colours, for small parts laid on the body. */
     paint: flat(),
     shade: flat(),
-    /** Glass, arch wells and openings. */
+    /** Window frames, arch wells and openings. */
     dark: flat(),
+    /** The panes inside the frames. */
+    glass: glassMaterial(),
     tyre: flat(),
     /** Edge lines drawn on top of the body. */
     line: new THREE.LineBasicMaterial(),
@@ -401,7 +440,9 @@ export function createCar(): Car {
     high: number,
     side: 1 | -1,
     material: THREE.Material,
-  ): void => {
+    out = 0.12,
+    outline = true,
+  ): THREE.Mesh => {
     const rows: THREE.Vector3[][] = [];
     const across = 5;
     const steps = Math.max(2, Math.ceil(Math.abs(zFrom(0.5) - zTo(0.5))));
@@ -409,12 +450,13 @@ export function createCar(): Car {
       rows.push(
         Array.from({ length: across + 1 }, (_, j) => {
           const t = j / across;
-          return skin(mix(zFrom(t), zTo(t), i / steps), mix(low, high, t), side, 0.12);
+          return skin(mix(zFrom(t), zTo(t), i / steps), mix(low, high, t), side, out);
         }),
       );
     }
-    add(sheet(rows), material);
-    line([...rows.map((r) => r[0]!), ...rows[steps]!, ...rows.map((r) => r[across]!).reverse(), ...rows[0]!.slice().reverse()].map((p) => lift(p.clone(), 0.04)), true);
+    const mesh = add(sheet(rows), material);
+    if (outline) line([...rows.map((r) => r[0]!), ...rows[steps]!, ...rows.map((r) => r[across]!).reverse(), ...rows[0]!.slice().reverse()].map((p) => lift(p.clone(), 0.04)), true);
+    return mesh;
   };
 
   // --- Shadow on the sheet
@@ -450,14 +492,32 @@ export function createCar(): Car {
   const { glass } = PARTS;
   const sideLow = RING.shoulder + 0.4;
   const sideHigh = RING.topEdge - 0.3;
+  const panes: THREE.Mesh[] = [];
   for (const side of SIDES) {
     const front = (t: number) => mix(glass.frontLow, glass.frontTop, t);
     const rear = (t: number) => mix(glass.rearLow, glass.rearTop, t);
-    patch(front, () => glass.pillar + 0.55, sideLow, sideHigh, side, mat.dark);
-    patch(() => glass.pillar - 0.55, rear, sideLow, sideHigh, side, mat.dark);
-    patch(() => CABIN.cowl - 0.8, () => CABIN.roofFront + 0.6, RING.topEdge + 0.55, RING.topCentre, side, mat.dark);
-    patch(() => CABIN.roofRear - 0.7, () => CABIN.deck + 0.8, RING.topEdge + 0.55, RING.topCentre, side, mat.dark);
+    // Each window is a dark frame on the body with a pane of glass set inside it, a little smaller.
+    const glazed = (zFrom: (t: number) => number, zTo: (t: number) => number, low: number, high: number, inset: number, lowInset = inset): void => {
+      patch(zFrom, zTo, low, high, side, mat.dark);
+      // The ends run from the front of the car to the back, so the pane's are moved in towards each other.
+      const way = Math.sign(zTo(0.5) - zFrom(0.5));
+      panes.push(patch((t) => zFrom(t) + way * FRAME.ends, (t) => zTo(t) - way * FRAME.ends, low + lowInset, high - inset, side, mat.glass, 0.2, false));
+    };
+    glazed(front, () => glass.pillar + 0.55, sideLow, sideHigh, FRAME.round);
+    glazed(() => glass.pillar - 0.55, rear, sideLow, sideHigh, FRAME.round);
+    // The windscreen and the rear screen meet their other halves in the middle of the car: no frame there.
+    glazed(() => CABIN.cowl - 0.8, () => CABIN.roofFront + 0.6, RING.topEdge + 0.55, RING.topCentre, 0, FRAME.round);
+    glazed(() => CABIN.roofRear - 0.7, () => CABIN.deck + 0.8, RING.topEdge + 0.55, RING.topCentre, 0, FRAME.round);
   }
+  // The light on the glass drifts by itself, unless motion is to be kept down.
+  const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const began = performance.now();
+  // One pane keeps the time for all of them: it is always drawn, so the clock never stops.
+  const keeper = panes[0]!;
+  keeper.frustumCulled = false;
+  keeper.onBeforeRender = () => {
+    if (!still) mat.glass.uniforms.time!.value = (performance.now() - began) / 1000;
+  };
 
   // --- Edge lines on the body
   for (const side of SIDES) {
@@ -785,6 +845,8 @@ export function createCar(): Car {
       fill(mat.paint.color, '--body-blue'),
       fill(mat.shade.color, '--body-shade'),
       fill(mat.dark.color, '--body-dark'),
+      fill(mat.glass.uniforms.tint!.value, '--glass'),
+      fill(mat.glass.uniforms.shine!.value, '--glass-shine'),
       // The tyres keep a trace of their tone, so the outline still stands on something.
       fill(mat.tyre.color, '--tyre', 0.82),
       fill(mat.gold.color, '--wheel-gold'),
