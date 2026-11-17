@@ -1,5 +1,5 @@
 /**
- * The stage's top ten: a name and a time. The rules are pure functions; `Board` is where the times are kept.
+ * Each stage's top ten: a name and a time. The rules are pure functions; `Board` is where the times are kept.
  *
  * `sharedBoard` is the one everyone sees, in a Supabase table. `deviceBoard` is the one on this device,
  * which the shared board falls back to. `openBoard`, at the bottom of this file, picks between them.
@@ -16,6 +16,13 @@ export const NAME_LENGTH = 12;
 export const DEFAULT_NAME = 'Driver';
 
 const BOARD_KEY = 'blobeye.rally.top';
+/** The stage the times are for, as the shared table names it, when no other is given: Naivasha, the first. */
+export const STAGE_ID = 'naivasha';
+
+/** Where a stage's board is kept on this device. Naivasha's keeps the key it had before there were other stages. */
+export function boardKey(stage: string): string {
+  return stage === STAGE_ID ? BOARD_KEY : `${BOARD_KEY}.${stage}`;
+}
 /** Before there was a board, only the best time was kept, under this key. It becomes the first entry. */
 const OLD_BEST_KEY = 'blobeye.rally.best';
 
@@ -74,14 +81,15 @@ export interface Board {
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
 
-/** A board kept on this device. Without storage (a private window may refuse it) it lasts for the visit. */
-export function deviceBoard(store: Store | null): Board {
+/** A stage's board kept on this device. Without storage (a private window may refuse it) it lasts for the visit. */
+export function deviceBoard(store: Store | null, stage: string = STAGE_ID): Board {
+  const key = boardKey(stage);
   let entries: Entry[] | null = null;
   const read = (): Entry[] => {
     if (entries) return entries;
     try {
-      entries = parseBoard(store?.getItem(BOARD_KEY) ?? null);
-      const oldBest = Number(store?.getItem(OLD_BEST_KEY));
+      entries = parseBoard(store?.getItem(key) ?? null);
+      const oldBest = stage === STAGE_ID ? Number(store?.getItem(OLD_BEST_KEY)) : NaN;
       if (!entries.length && validTime(oldBest)) entries = [{ name: DEFAULT_NAME, time: oldBest }];
     } catch {
       entries = [];
@@ -94,7 +102,7 @@ export function deviceBoard(store: Store | null): Board {
     async add(entry) {
       entries = addEntry(read(), entry);
       try {
-        store?.setItem(BOARD_KEY, JSON.stringify(entries));
+        store?.setItem(key, JSON.stringify(entries));
       } catch {
         /* the board still stands for this visit */
       }
@@ -103,8 +111,6 @@ export function deviceBoard(store: Store | null): Board {
   };
 }
 
-/** The stage the times are for, as the shared table names it. */
-export const STAGE_ID = 'naivasha';
 /** The shared table refuses times outside these, in seconds: no car could set a quicker one, and nobody waits for a slower. */
 export const SHARED_TIMES = { least: 20, most: 600 } as const;
 /** How long to wait for the shared board before falling back, in milliseconds. */
@@ -128,18 +134,19 @@ type Send = (url: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | '
  * A board shared by everyone, kept in a Supabase table and reached over its REST API with the public key.
  * The table is `rally_times`: `name`, `time_ms`, `stage`, `created_at`. The key may read and insert, nothing else.
  *
+ * Each stage's times are kept apart by the table's `stage` column: this board reads and writes `stage`'s.
  * Every time also goes on `device`, the board on this device, so it is never lost. Whenever the shared
  * board cannot be reached (or will not take the time), the device's own times are shown instead, and
  * `scope` says so.
  */
-export function sharedBoard(url: string, key: string, device: Board, send: Send = (to, init) => fetch(to, init)): Board {
+export function sharedBoard(url: string, key: string, device: Board, send: Send = (to, init) => fetch(to, init), stage: string = STAGE_ID): Board {
   const table = `${url.replace(/\/+$/, '')}/rest/v1/rally_times`;
   const headers = { apikey: key, Authorization: `Bearer ${key}` };
   const waiting = (): { signal?: AbortSignal } => (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? { signal: AbortSignal.timeout(PATIENCE) } : {});
   let reached = true;
 
   const read = async (): Promise<Entry[]> => {
-    const query = `select=name,time_ms&stage=eq.${STAGE_ID}&order=time_ms.asc,created_at.asc&limit=${BOARD_SIZE}`;
+    const query = `select=name,time_ms&stage=eq.${encodeURIComponent(stage)}&order=time_ms.asc,created_at.asc&limit=${BOARD_SIZE}`;
     const answer = await send(`${table}?${query}`, { headers, ...waiting() });
     if (!answer.ok) throw new Error(`The shared board answered ${answer.status}`);
     return rowsToEntries(await answer.json());
@@ -168,7 +175,7 @@ export function sharedBoard(url: string, key: string, device: Board, send: Send 
         const answer = await send(table, {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-          body: JSON.stringify({ name: kept.name, time_ms, stage: STAGE_ID }),
+          body: JSON.stringify({ name: kept.name, time_ms, stage }),
           ...waiting(),
         });
         if (!answer.ok) throw new Error(`The shared board answered ${answer.status}`);
@@ -184,18 +191,18 @@ export function sharedBoard(url: string, key: string, device: Board, send: Send 
 }
 
 /**
- * The board the game uses: the shared one when the project's details are set (`VITE_SUPABASE_URL` and
+ * The board the game uses for a stage: the shared one when the project's details are set (`VITE_SUPABASE_URL` and
  * `VITE_SUPABASE_KEY` in `.env`, see `.env.example`), and the one on this device otherwise.
  */
-export function openBoard(): Board {
+export function openBoard(stage: string = STAGE_ID): Board {
   let store: Store | null = null;
   try {
     store = window.localStorage;
   } catch {
     /* storage is switched off */
   }
-  const device = deviceBoard(store);
+  const device = deviceBoard(store, stage);
   const url = import.meta.env.VITE_SUPABASE_URL;
   const key = import.meta.env.VITE_SUPABASE_KEY;
-  return url && key ? sharedBoard(url, key, device) : device;
+  return url && key ? sharedBoard(url, key, device, undefined, stage) : device;
 }

@@ -10,8 +10,25 @@
 #rally .hud b{font-family:var(--f-display); font-style:italic; font-weight:800; font-size:40px; line-height:1;
   letter-spacing:.01em; font-variant-numeric:tabular-nums}
 #rally .clock{left:20px; top:20px; min-width:190px}
+/* the right-hand column: the buttons, then the top ten under them */
+#rally .side{position:absolute; right:20px; top:20px; display:flex; flex-direction:column; align-items:flex-end; gap:8px}
+#rally .side .hud{position:static}
+#rally .tools{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px}
+#rally .tool{
+  min-height:32px; padding:5px 10px; background:color-mix(in srgb,var(--paper-2) 92%,transparent); border:1.5px solid var(--ink);
+  color:var(--ink); font-family:var(--f-mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; cursor:pointer;
+}
+#rally .tool[aria-pressed="true"]{background:var(--ink); color:var(--paper)}
+#rally .tool:focus-visible{outline:2px solid var(--gold); outline-offset:2px}
+#rally .touch-only{display:none}
+#rally.touch .touch-only{display:inline-block}
+/* the stage picker on the start and finish panel */
+#rally .stages{display:flex; flex-wrap:wrap; justify-content:center; gap:6px; margin-top:4px}
+#rally .stages .tool{display:flex; flex-direction:column; align-items:center; gap:2px; text-transform:none; letter-spacing:.04em}
+#rally .stages .tool b{font-family:var(--f-display); font-style:italic; font-weight:800; font-size:18px; line-height:1.1}
+#rally .stages .tool small{font-size:10px; opacity:.8}
 /* the top ten, and the name box on the finish panel (src/game/boardHud.ts) */
-#rally .board{right:20px; top:20px; width:230px; gap:6px}
+#rally .board{width:230px; gap:6px}
 #rally .board ol{list-style:none; margin:0; padding:0; display:grid; gap:3px; font-variant-numeric:tabular-nums}
 #rally .board li{display:grid; grid-template-columns:1.6em 1fr auto; gap:8px}
 #rally .board li i{font-style:normal; color:var(--ink-soft)}
@@ -20,7 +37,9 @@
 /* a run that missed the ten, under the rest */
 #rally .board li.below{border-top:1px dashed var(--ink-soft); padding-top:3px}
 #rally .board li.none{display:block; color:var(--ink-soft)}
+#rally .name{display:flex; align-items:center; gap:10px}
 #rally .name label{display:flex; align-items:center; gap:10px}
+#rally .name .skip{height:36px; padding:0 10px; background:none; border:1.5px solid var(--ink); color:var(--ink); font:inherit; letter-spacing:inherit; text-transform:uppercase; cursor:pointer}
 #rally .name input{
   width:16ch; height:36px; padding:0 10px; background:var(--paper); color:var(--ink); border:1.5px solid var(--ink);
   font:inherit; letter-spacing:inherit; text-transform:uppercase;
@@ -131,4 +150,72 @@
 
 @media (prefers-reduced-motion:reduce){
   #rally .sector,#rally .splits .flash,#rally .wrongway{animation:none}
+
 }
+
+/* Phones and tablets (src/game/touch.ts): steering pads bottom left, Go and Brake bottom right, and
+   everything else smaller, so the road shows between them. */
+#rally.touch{touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none}
+#rally .pads{display:none}
+#rally.touch .pads{display:block; position:absolute; left:0; right:0; bottom:0; height:46%; pointer-events:none}
+#rally .pads .steer{
+  position:absolute; left:max(12px,env(safe-area-inset-left)); bottom:max(12px,env(safe-area-inset-bottom)); width:min(40%,320px); height:100%;
+  display:grid; grid-template-columns:1fr 1fr; gap:8px; pointer-events:auto; touch-action:none;
+}
+#rally .pads .pedals{
+  position:absolute; right:max(12px,env(safe-area-inset-right)); bottom:max(12px,env(safe-area-inset-bottom)); height:100%;
+  display:flex; align-items:flex-end; gap:8px; pointer-events:auto; touch-action:none;
+}
+#rally .pads .steer span, #rally .pedal{
+  display:grid; place-items:center; background:color-mix(in srgb,var(--paper-2) 30%,transparent);
+  border:1.5px solid color-mix(in srgb,var(--ink) 55%,transparent); color:var(--ink);
+  font-family:var(--f-mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase;
+}
+#rally .pads .steer span{font-size:22px}
+#rally .pedal.brake{width:88px; height:62%}
+#rally .pedal.throttle{width:112px; height:100%}
+#rally .pads .on{background:color-mix(in srgb,var(--paper-2) 75%,transparent); border-color:var(--ink)}
+#rally.touch .keys{display:none}
+#rally.touch .hud{padding:5px 9px; font-size:9px}
+#rally.touch .hud b{font-size:26px}
+#rally.touch .clock{left:max(10px,env(safe-area-inset-left)); top:10px; min-width:130px}
+#rally.touch .splits{left:max(10px,env(safe-area-inset-left)); top:60px; min-width:130px}
+#rally.touch .side{right:max(10px,env(safe-area-inset-right)); top:10px; max-width:46%}
+#rally.touch .tool{min-height:36px; font-size:10px; padding:4px 9px}
+/* the calls smaller, the sector time under them, the map under the splits, and the instruments between the pads */
+#rally.touch .pace{top:10px; gap:6px}
+#rally.touch .pace .note{padding:5px 8px 4px; font-size:9px}
+#rally.touch .pace .sign{width:62px; height:62px}
+#rally.touch .pace .caution{width:26px; height:24px}
+#rally.touch .pace .then .sign{width:34px; height:34px}
+#rally.touch .pace .then .caution{width:16px; height:15px}
+#rally.touch .sector{top:104px; padding:5px 12px}
+#rally.touch .sector b{font-size:22px}
+#rally.touch .wrongway{font-size:clamp(36px,8vw,72px); padding:2px 20px}
+#rally.touch .minimap{left:max(10px,env(safe-area-inset-left)); top:138px; bottom:auto; padding:4px}
+#rally.touch .minimap svg{width:84px; height:84px}
+#rally.touch .gauges{left:50%; right:auto; bottom:max(8px,env(safe-area-inset-bottom)); transform:translateX(-50%); gap:6px; padding:3px 8px 3px 3px}
+#rally.touch .gauges .revs{width:84px; height:73px}
+#rally.touch .gauges .readout b{font-size:20px}
+#rally.touch .codriver{left:50%; right:auto; bottom:calc(max(8px,env(safe-area-inset-bottom)) + 92px); transform:translateX(-50%); padding:5px 9px; font-size:9px}
+/* The top ten waits for the finish, when the pads are not needed. */
+#rally.touch:not(.done) .board{display:none}
+#rally.touch .board{width:200px; max-height:calc(100vh - 70px); overflow:auto}
+#rally.touch .call{top:50%; transform:translate(-50%,-50%); max-width:min(560px,calc(100% - 24px)); max-height:calc(100% - 20px); overflow:auto; padding:10px 16px; gap:4px}
+#rally.touch .call b{font-size:38px}
+#rally.touch .call strong{font-size:17px}
+#rally.touch.done .call{left:calc(50% - 110px); max-width:calc(100% - 260px)}
+#rally.touch .stages .tool b{font-size:15px}
+#rally.touch .stages .tool small{display:none}
+/* Held upright, a phone asks to be turned. The run waits meanwhile (rally.ts). */
+#rally .turn{display:none}
+@media (orientation: portrait){
+  #rally.touch .turn{
+    display:flex; position:absolute; inset:0; z-index:5; flex-direction:column; align-items:center; justify-content:center; gap:8px;
+    padding:24px; text-align:center; background:var(--paper); color:var(--ink);
+    font-family:var(--f-mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+  }
+  #rally.touch .turn b{font-family:var(--f-display); font-style:italic; font-weight:800; font-size:30px; letter-spacing:.01em; text-transform:none}
+  #rally.touch .turn::before{content:""; width:46px; height:78px; border:2.5px solid var(--ink); border-radius:8px; transform:rotate(-90deg); margin-bottom:18px}
+/* Readouts let a thumb through to the pad under them. */
+#rally.touch .hud:not(.call):not(.codriver):not(.board){pointer-events:none}

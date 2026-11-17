@@ -73,7 +73,7 @@ describe('medals', () => {
   it('come with a line for the end screen', () => {
     expect(verdict(TARGETS.gold - 2)).toBe("Sawa. That's a stage time.");
     expect(verdict(TARGETS.bronze + 20)).toBe('Even the zebra overtook you.');
-    const lines = new Set([TARGETS.gold, TARGETS.silver, TARGETS.bronze, TARGETS.bronze + 1].map(verdict));
+    const lines = new Set([TARGETS.gold, TARGETS.silver, TARGETS.bronze, TARGETS.bronze + 1].map((time) => verdict(time)));
     expect(lines.size).toBe(4);
   });
 });

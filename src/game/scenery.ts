@@ -52,9 +52,22 @@ export function roadFrame(stage: Stage, distance: number): { x: number; y: numbe
   return { x: at.x, y: at.y, ahead, right: [-ahead[1], ahead[0]] };
 }
 
-/** Scatter the bush around the stage. Trees and rocks keep off the road; tufts come right up to its edge. */
-export function growScenery(stage: Stage, seed = 2003): Scenery {
-  const random = scatter(seed);
+/** How much bush there is (1 is Naivasha's), and the shares of trees and rocks in it; the rest is grass. */
+export interface BushMix {
+  density: number;
+  trees: number;
+  rocks: number;
+  seed: number;
+}
+
+export const NAIVASHA_BUSH: BushMix = { density: 1, trees: 0.07, rocks: 0.05, seed: 2003 };
+
+/**
+ * Scatter the bush around the stage. Trees and rocks keep off the road; tufts come right up to its edge.
+ * `thin` keeps that share of it, for screens that cannot draw it all.
+ */
+export function growScenery(stage: Stage, mix: BushMix = NAIVASHA_BUSH, thin = 1): Scenery {
+  const random = scatter(mix.seed);
   // The middle of the road, run-outs included, to keep things off it.
   const line: Spot[] = [];
   for (let d = -RUN_OUT; d <= stage.length + RUN_OUT; d += 4) {
@@ -78,17 +91,17 @@ export function growScenery(stage: Stage, seed = 2003): Scenery {
   const [wide, tall] = [Math.max(...xs) + margin - left, Math.max(...ys) + margin - top];
 
   const scenery: Scenery = { trees: [], rocks: [], tufts: [] };
-  const count = Math.round((wide * tall) / 260);
+  const count = Math.round(((wide * tall) / 260) * mix.density * thin);
   for (let i = 0; i < count; i++) {
     const x = left + random() * wide;
     const y = top + random() * tall;
     const kind = random();
     const size = random();
     const plant = { x, y, turn: random() * Math.PI * 2, vary: random() };
-    if (kind < 0.07) {
+    if (kind < mix.trees) {
       const r = 2.6 + size * 2.4;
       if (clearOf(x, y, stage.halfWidth + r + 3)) scenery.trees.push({ ...plant, r });
-    } else if (kind < 0.12) {
+    } else if (kind < mix.trees + mix.rocks) {
       const r = 0.4 + size * 1.0;
       if (clearOf(x, y, stage.halfWidth + r + 2.5)) scenery.rocks.push({ ...plant, r });
     } else {
@@ -97,7 +110,7 @@ export function growScenery(stage: Stage, seed = 2003): Scenery {
     }
   }
   // More tufts along both verges, where they show how fast the road is going by.
-  for (let d = 0; d < stage.length; d += 7) {
+  for (let d = 0; d < stage.length; d += 7 / thin) {
     for (const side of [-1, 1]) {
       const { x, y, right } = roadFrame(stage, d + random() * 7);
       const r = 0.4 + random() * 0.6;

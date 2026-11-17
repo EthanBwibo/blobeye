@@ -14,6 +14,8 @@ export interface BoardHud {
   takesKey(e: KeyboardEvent): boolean;
   /** A new run has begun: a time still waiting for a name is let go. */
   reset(): void;
+  /** Take the list and the name box off the screen, for another stage's. */
+  dispose(): void;
 }
 
 /** Two rows are the same run if they share a name and a time to the thousandth. */
@@ -23,8 +25,9 @@ const same = (a: Entry, b: Entry): boolean => a.name === b.name && Math.round(a.
  * @param root the game's screen, which gets the list
  * @param call the finish panel, which gets the name box
  * @param onDone called when the name box closes, so the game can take the keys back
+ * @param touch the player has a touch screen and no keys, so the notes name the buttons instead
  */
-export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () => void, board = openBoard()): BoardHud {
+export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () => void, board = openBoard(), touch = false): BoardHud {
   const panel = document.createElement('div');
   panel.className = 'hud board';
   const heading = document.createElement('span');
@@ -44,7 +47,11 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
   input.autocomplete = 'off';
   input.spellcheck = false;
   label.append(input);
-  form.append(label);
+  const skip = document.createElement('button');
+  skip.type = 'button';
+  skip.className = 'skip';
+  skip.textContent = 'Skip';
+  form.append(label, skip);
   call.append(form);
 
   /** Whether this board is meant to be the one everyone shares. If it then says otherwise, it has fallen back. */
@@ -96,6 +103,9 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
     form.hidden = true;
     onDone();
   };
+  skip.addEventListener('click', () => {
+    if (waiting !== null) close();
+  });
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     if (waiting === null) return;
@@ -127,9 +137,9 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
       input.select();
     },
     note() {
-      if (waiting !== null) return 'Type a name, then Enter · Esc to skip';
+      if (waiting !== null) return touch ? 'Type a name, then Go' : 'Type a name, then Enter · Esc to skip';
       if (sending) return 'Sending your time';
-      const keys = 'Enter to go again · Esc to leave';
+      const keys = touch ? 'Again or Leave, at the top' : 'Enter to go again · Esc to leave';
       if (!mine) return keys;
       const place = entries.findIndex((entry) => same(entry, mine!));
       const placed = place < 0 ? 'Outside the top ten' : place === 0 ? 'Fastest on the board' : `Place ${place + 1} in the top ten`;
@@ -146,6 +156,11 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
     },
     reset() {
       if (waiting !== null) close();
+    },
+    dispose() {
+      waiting = null;
+      panel.remove();
+      form.remove();
     },
   };
 }

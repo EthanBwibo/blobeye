@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BOARD_SIZE, DEFAULT_NAME, NAME_LENGTH, STAGE_ID, addEntry, cleanName, deviceBoard, parseBoard, placeOf, rowsToEntries, sharedBoard, type Entry } from './leaderboard';
+import { BOARD_SIZE, DEFAULT_NAME, NAME_LENGTH, STAGE_ID, addEntry, boardKey, cleanName, deviceBoard, parseBoard, placeOf, rowsToEntries, sharedBoard, type Entry } from './leaderboard';
 
 const full: Entry[] = Array.from({ length: BOARD_SIZE }, (_, i) => ({ name: `D${i}`, time: 60 + i }));
 
@@ -225,5 +225,29 @@ describe('sharedBoard', () => {
     expect(table.calls.some((c) => c.init.method === 'POST')).toBe(false);
     expect(await deviceBoard(null).top()).toEqual([]);
     expect(board.scope).toBe('this device');
+  });
+  it("reads and sends another stage's times under that stage's name", async () => {
+    const table = fakeTable();
+    const board = sharedBoard(URL, KEY, deviceBoard(null, 'hells-gate'), table.send, 'hells-gate');
+    await board.add({ name: 'Ethan', time: 61.5 });
+    const post = table.calls.find((c) => c.init.method === 'POST')!;
+    expect(JSON.parse(String(post.init.body))).toMatchObject({ stage: 'hells-gate' });
+    const read = table.calls.find((c) => (c.init.method ?? 'GET') === 'GET')!;
+    expect(new URLSearchParams(read.url.split('?')[1]).get('stage')).toBe('eq.hells-gate');
+  });
+});
+
+describe('a board for each stage', () => {
+  it("keeps each stage's times apart on the device, with Naivasha's where they always were", async () => {
+    const store = fakeStore({ 'blobeye.rally.best': '66' });
+    expect(boardKey(STAGE_ID)).toBe('blobeye.rally.top');
+    expect(boardKey('soysambu')).toBe('blobeye.rally.top.soysambu');
+    // The old single best time belongs to Naivasha, the only stage there was.
+    expect(await deviceBoard(store, 'soysambu').top()).toEqual([]);
+    expect(await deviceBoard(store, STAGE_ID).top()).toEqual([{ name: DEFAULT_NAME, time: 66 }]);
+    await deviceBoard(store, 'soysambu').add({ name: 'Ethan', time: 70 });
+    expect(await deviceBoard(store, 'soysambu').top()).toEqual([{ name: 'Ethan', time: 70 }]);
+    expect(await deviceBoard(store, 'hells-gate').top()).toEqual([]);
+    expect(store.kept.has('blobeye.rally.top.soysambu')).toBe(true);
   });
 });

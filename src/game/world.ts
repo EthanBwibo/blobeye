@@ -1,6 +1,6 @@
 /**
  * The Safari stage in 3D: the road across the savannah, the bush, the hills, the sky, the car and its dust,
- * and what lies on the road: rocks, a ford, a bridge, a crest and a herd of zebra.
+ * what lies on the road (rocks, a ford, a bridge, crests and a herd of zebra), and the ghost of the best run.
  * This file only draws. Where things are comes from `stage.ts` and `scenery.ts`, how the car moves from
  * `handling.ts`, and where the camera sits from `chase.ts`.
  *
@@ -17,15 +17,18 @@ import type { Place } from './chase';
 import type { CarState } from './handling';
 import { groundAt, roomAt } from './hazards';
 import { SKIES, type Light } from './light';
-import { RUN_OUT, growScenery, roadFrame, scatter } from './scenery';
+import { NAIVASHA_BUSH, RUN_OUT, growScenery, roadFrame, scatter, type BushMix } from './scenery';
+import type { GhostPose } from './ghost';
 import type { Stage } from './stage';
 
 /** The car is drawn this long, in metres. */
 export const CAR_LENGTH = 4.6;
 /** Metres per unit of the car model, which is 100 long. */
 export const UNIT = CAR_LENGTH / 100;
-/** The most dust that is ever in the air. */
+/** The most dust that is ever in the air. A phone keeps less (see `World.mostDust`). */
 export const MOST_DUST = 420;
+/** The opacity of the ghost car. */
+const GHOST_OPACITY = 0.32;
 /** The front wheels turn this far at full lock, in radians. */
 const FULL_LOCK = 0.42;
 
@@ -62,6 +65,15 @@ export interface View {
   /** The lens, in degrees. */
   fov: number;
   dust: readonly Puff[];
+  /** Where the best run's car is, or null for no ghost. */
+  ghost: GhostPose | null;
+}
+
+export interface WorldOptions {
+  /** The bush beside this stage's road. */
+  bush?: BushMix;
+  /** A phone: fewer pixels, no smoothing of edges, half the bush and less dust, so it keeps up. */
+  lite?: boolean;
 }
 
 export interface World {
@@ -72,6 +84,10 @@ export interface World {
   /** Move the sun and the haze to a time of day. The colours follow with `applyTheme`. */
   setLight(light: Light): void;
   draw(view: View): void;
+  /** The most puffs of dust this world will draw. */
+  mostDust: number;
+  /** Let go of the graphics memory. The world cannot be drawn again. */
+  dispose(): void;
 }
 
 /** Where the light comes from, for the shading baked into the simple shapes, and where the sun hangs in the sky. */
@@ -253,10 +269,13 @@ function dustMaterial(): THREE.ShaderMaterial {
   });
 }
 
-export function createWorld(stage: Stage): World {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  // Enough to look sharp; more only costs frames on a laptop's graphics.
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+export function createWorld(stage: Stage, options: WorldOptions = {}): World {
+  const lite = options.lite ?? false;
+  const mostDust = lite ? 160 : MOST_DUST;
+  const renderer = new THREE.WebGLRenderer({ antialias: !lite, powerPreference: 'high-performance' });
+  // Enough to look sharp; more only costs frames on a laptop's graphics. A phone draws fewer pixels than its
+  // screen has and lets the browser stretch them: its screen is small and dense enough that it hardly shows.
+  renderer.setPixelRatio(lite ? Math.min(window.devicePixelRatio || 1, 1) * 0.85 : Math.min(window.devicePixelRatio || 1, 1.5));
   const canvas = renderer.domElement;
   const scene = new THREE.Scene();
   const fog = new THREE.Fog(0, SKIES.dusk.fog.near, SKIES.dusk.fog.far);
@@ -314,16 +333,16 @@ export function createWorld(stage: Stage): World {
   // --- The road: red murram with a darker verge, and broken ruts so its speed shows
   const half = stage.halfWidth;
   const hazards = stage.hazards;
-  const { crest, water, bridge } = hazards;
+  const { crests, water, bridge } = hazards;
   const [from, to] = [-RUN_OUT, stage.length + RUN_OUT];
   const across = (left: number, right: number): [number, number][] => [[left, 0], [right, 0]];
-  /** The crest lifts the road, and falls away to nothing in the grass beside it. */
+  /** A crest lifts the road, and falls away to nothing in the grass beside it. */
   const rise = (distance: number, out: number): number => groundAt(hazards, distance) * Math.min(1, Math.max(0, (half + 10 - Math.abs(out)) / 8.8));
-  /** A strip along the road that rides over the crest with it. */
+  /** A strip along the road that rides over the crests with it. */
   const lay = (begin: number, end: number, profile: readonly (readonly [number, number])[], step = 4) => strip(stage, begin, end, profile, step, rise);
-  // The crest's own earth, so the raised road does not hang in the air
-  if (crest.height > 0) {
-    backdrop(lay(crest.at - crest.reach, crest.at + crest.reach, [[-half - 10, 0], [-half - 0.9, 0], [half + 0.9, 0], [half + 10, 0]], 2), mat.savannah);
+  // Each crest's own earth, so the raised road does not hang in the air
+  for (const crest of crests) {
+    if (crest.height > 0) backdrop(lay(crest.at - crest.reach, crest.at + crest.reach, [[-half - 10, 0], [-half - 0.9, 0], [half + 0.9, 0], [half + 10, 0]], 2), mat.savannah);
   }
   backdrop(lay(from, to, across(-half - 0.9, half + 0.9)), mat.verge);
   backdrop(lay(from, to, across(-half, half)), mat.road);
@@ -376,7 +395,7 @@ export function createWorld(stage: Stage): World {
   }
 
   // --- The bush: every tree, rock and tuft is one of a few simple shapes, drawn many times
-  const bush = growScenery(stage);
+  const bush = growScenery(stage, options.bush ?? NAIVASHA_BUSH, lite ? 0.5 : 1);
   const spot = new THREE.Object3D();
   const tint = new THREE.Color();
   const many = <T>(geometry: THREE.BufferGeometry, material: THREE.Material, items: readonly T[], place: (item: T) => number): void => {
@@ -492,16 +511,25 @@ export function createWorld(stage: Stage): World {
   // Turn to the heading first, then dip the nose, then lean.
   car.group.rotation.order = 'YXZ';
   scene.add(car.group);
+  // The ghost: the same car again, see-through. It cannot be hit.
+  const ghost = createCar();
+  ghost.group.scale.setScalar(UNIT);
+  ghost.group.rotation.order = 'YXZ';
+  ghost.group.visible = false;
+  ghost.setOpacity(GHOST_OPACITY);
+  // Drawn after the car, so the car shows through it and not the other way round.
+  ghost.group.traverse((part) => void (part.renderOrder = 8));
+  scene.add(ghost.group);
 
   // --- Dust
   const dustShape = new THREE.BufferGeometry();
-  const dustAt = new THREE.BufferAttribute(new Float32Array(MOST_DUST * 3), 3).setUsage(THREE.DynamicDrawUsage);
-  const dustWidth = new THREE.BufferAttribute(new Float32Array(MOST_DUST), 1).setUsage(THREE.DynamicDrawUsage);
-  const dustFade = new THREE.BufferAttribute(new Float32Array(MOST_DUST), 1).setUsage(THREE.DynamicDrawUsage);
+  const dustAt = new THREE.BufferAttribute(new Float32Array(mostDust * 3), 3).setUsage(THREE.DynamicDrawUsage);
+  const dustWidth = new THREE.BufferAttribute(new Float32Array(mostDust), 1).setUsage(THREE.DynamicDrawUsage);
+  const dustFade = new THREE.BufferAttribute(new Float32Array(mostDust), 1).setUsage(THREE.DynamicDrawUsage);
   dustShape.setAttribute('position', dustAt);
   dustShape.setAttribute('width', dustWidth);
   dustShape.setAttribute('fade', dustFade);
-  const dustWet = new THREE.BufferAttribute(new Float32Array(MOST_DUST), 1).setUsage(THREE.DynamicDrawUsage);
+  const dustWet = new THREE.BufferAttribute(new Float32Array(mostDust), 1).setUsage(THREE.DynamicDrawUsage);
   dustShape.setAttribute('wet', dustWet);
   dustShape.setDrawRange(0, 0);
   const dust = new THREE.Points(dustShape, mat.dust);
@@ -542,6 +570,7 @@ export function createWorld(stage: Stage): World {
     mat.stripe.color = token('--stripe');
     // On the earth the car's shadow is brown, not the blue it casts on the drawing sheet.
     car.applyTheme((name) => token(name === '--ground-shade' ? '--stage-shade' : name));
+    ghost.applyTheme((name) => token(name === '--ground-shade' ? '--stage-shade' : name));
   };
   applyTheme();
 
@@ -566,6 +595,12 @@ export function createWorld(stage: Stage): World {
     car.setRoll(view.rolled / (WHEELS.radius * UNIT));
     car.setAir(view.air / UNIT);
 
+    ghost.group.visible = view.ghost !== null;
+    if (view.ghost) {
+      ghost.group.position.set(view.ghost.x, view.ghost.height, view.ghost.y);
+      ghost.group.rotation.set(0, Math.PI / 2 - view.ghost.heading, 0);
+    }
+
     camera.position.set(eye.x, eye.height, eye.y);
     camera.lookAt(target.x, target.height, target.y);
     if (camera.fov !== view.fov) {
@@ -583,7 +618,7 @@ export function createWorld(stage: Stage): World {
       zebra.rotation.y = -where.heading;
     });
 
-    const count = Math.min(view.dust.length, MOST_DUST);
+    const count = Math.min(view.dust.length, mostDust);
     for (let i = 0; i < count; i++) {
       const puff = view.dust[i]!;
       dustAt.setXYZ(i, puff.x, puff.height, puff.y);
@@ -602,5 +637,16 @@ export function createWorld(stage: Stage): World {
   // Have the shaders ready before the first frame, so the cut into the stage does not stutter.
   renderer.compile(scene, camera);
 
-  return { canvas, resize, applyTheme, setLight, draw };
+  const dispose = (): void => {
+    scene.traverse((object) => {
+      const { geometry, material } = object as THREE.Mesh;
+      geometry?.dispose();
+      for (const m of material === undefined ? [] : Array.isArray(material) ? material : [material]) m.dispose();
+    });
+    scene.environment?.dispose();
+    renderer.dispose();
+    renderer.forceContextLoss();
+  };
+
+  return { canvas, resize, applyTheme, setLight, draw, mostDust, dispose };
 }

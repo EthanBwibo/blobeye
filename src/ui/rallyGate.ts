@@ -1,5 +1,4 @@
 import type { EngineState } from '../engine/model';
-import { NARROW_WIDTH } from '../scene/camera';
 
 export interface RallyGateHost {
   engine: EngineState;
@@ -20,21 +19,17 @@ export interface RallyGate {
 }
 
 /**
- * The way in to the Safari stage, on its own sheet. The game is a separate chunk: it is fetched and
+ * The way in to the Safari stages, on their own sheet. The game is a separate chunk: it is fetched and
  * built when the visitor reaches this sheet, and cuts in when the car has driven off or the button is pressed.
  *
- * The game is keyboard only, so on phones and tablets the button gives way to a note.
+ * On a touch screen the game brings its own pads, so the note says so instead of naming keys.
  */
 export function initRallyGate(host: RallyGateHost): RallyGate {
   const button = document.getElementById('rallyStart') as HTMLButtonElement | null;
   const note = document.getElementById('rallyNote');
   if (!button || !note) return { update() {} };
 
-  if (window.innerWidth <= NARROW_WIDTH || !matchMedia('(hover: hover) and (pointer: fine)').matches) {
-    button.hidden = true;
-    note.textContent = 'The stage needs a keyboard · Open this page on a laptop to drive it';
-    return { update() {} };
-  }
+  if (matchMedia('(hover: none) and (pointer: coarse)').matches) note.textContent = 'Touch pads, or tilt to steer · Best held sideways';
 
   let game: Promise<typeof import('../game/rally')> | null = null;
   const fetchGame = () => (game ??= import('../game/rally'));
