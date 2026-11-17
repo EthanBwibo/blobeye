@@ -29,6 +29,8 @@ export interface Car {
   setXray(amount: number): void;
   /** Turn the wheels by this angle in radians, as if the car had rolled forward. */
   setRoll(angle: number): void;
+  /** Turn the front wheels by this angle in radians. Positive steers to the car's right. */
+  setSteer(angle: number): void;
   /** Re-read the colours. `token` turns a CSS custom property name into a colour. */
   applyTheme(token: (name: string) => THREE.Color): void;
 }
@@ -294,6 +296,8 @@ export function createCar(): Car {
   const bonnetHinge = new THREE.Group();
   /** The turning part of each wheel, with the side of the car it is on. */
   const hubs: [THREE.Group, 1 | -1][] = [];
+  /** The front wheels, which steer, with the side of the car each is on. */
+  const steered: [THREE.Group, 1 | -1][] = [];
   const bonnet = new THREE.Group();
   const add = (geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], edges = false, parent: THREE.Object3D = car): THREE.Mesh => {
     const mesh = new THREE.Mesh(geometry, material);
@@ -471,6 +475,7 @@ export function createCar(): Car {
       wheel.position.set(side * WHEELS.track, WHEELS.radius, axleZ);
       wheel.rotation.y = (side * Math.PI) / 2;
       car.add(wheel);
+      if (axleZ === WHEELS.frontZ) steered.push([wheel, side]);
       const hub = new THREE.Group();
       wheel.add(hub);
       hubs.push([hub, side]);
@@ -729,5 +734,9 @@ export function createCar(): Car {
     for (const [hub, side] of hubs) hub.rotation.z = side * angle;
   };
 
-  return { group: car, setBonnet, setOpacity, setXray, setRoll, applyTheme };
+  const setSteer = (angle: number): void => {
+    for (const [wheel, side] of steered) wheel.rotation.y = (side * Math.PI) / 2 - angle;
+  };
+
+  return { group: car, setBonnet, setOpacity, setXray, setRoll, setSteer, applyTheme };
 }

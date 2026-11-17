@@ -1,16 +1,19 @@
 /**
- * The Safari stage: a top-down time trial. This file is the only part that touches the page; the driving
- * is in `handling.ts` and the road and the clock are in `stage.ts`.
+ * The Safari stage: a time trial seen from a chase camera behind the car. This file runs the game and is
+ * the only part that touches the page. The driving is in `handling.ts`, the road and the clock in
+ * `stage.ts`, the camera and the start in `chase.ts`, and the drawing in `world.ts`.
  *
  * It is loaded on demand (see `src/ui/rallyGate.ts`), so nothing here may be imported by the main page.
  */
 import './rally.css';
 import type { EngineState } from '../engine/model';
-import type { Pair } from '../car/model';
+import { WHEELS } from '../car/model';
 import { createBoardHud } from './boardHud';
+import { chaseFov, chaseView, countdown, newChase, stepChase, type Chase } from './chase';
 import { carSpeeds, easeSteer, engineRpm, type DriveInput } from './handling';
-import { WHEEL_SIZE, WHEEL_SPOTS, cabinOutline, planOutline, roofOutline, scoopOutline, wingOutline } from './sprite';
-import { buildStage, formatTime, locate, newTrial, poseAt, stepTrial, type Stage, type Trial } from './stage';
+import { scatter } from './scenery';
+import { buildStage, formatTime, locate, newTrial, stepTrial, type Stage, type Trial } from './stage';
+import { MOST_DUST, UNIT, createWorld, type Puff, type World } from './world';
 
 export interface RallyHost {
   /** The engine the exhaust synth listens to. The game sets its revs from the road speed. */
@@ -25,143 +28,97 @@ export interface Rally {
   stop(): void;
 }
 
-/** The car is drawn this long, in metres: larger than life, so it reads from above. */
-const CAR_LENGTH = 5.4;
-const UNIT = CAR_LENGTH / 100;
 /** The driving runs in fixed steps, so a run is the same on a slow screen as on a fast one. */
 const STEP = 1 / 120;
-const TOKENS = ['savannah', 'murram', 'murram-edge', 'scrub', 'acacia', 'dust', 'paper', 'ink', 'gold', 'body-blue', 'body-light', 'body-dark', 'body-line', 'wheel-gold', 'ground-shade'] as const;
-type Colours = Record<(typeof TOKENS)[number], string>;
 
-const shape = (outline: readonly Pair[]): Path2D => {
-  const path = new Path2D();
-  outline.forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y)));
-  path.closePath();
-  return path;
-};
-
-/** A repeatable stream of numbers from 0 to 1, so the bush is the same on every visit. */
-function scatter(seed: number): () => number {
-  let s = seed;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
-}
-
-interface Plant {
-  x: number;
-  y: number;
-  r: number;
-  tree: boolean;
-}
-
-const CELL = 64;
-
-/** Tufts and thorn trees beside the road, sorted into squares so only the ones in view are drawn. */
-function growBush(stage: Stage): Map<string, Plant[]> {
-  const random = scatter(2003);
-  const xs = stage.points.map((p) => p[0]);
-  const ys = stage.points.map((p) => p[1]);
-  const margin = 140;
-  const [left, top] = [Math.min(...xs) - margin, Math.min(...ys) - margin];
-  const [wide, tall] = [Math.max(...xs) + margin - left, Math.max(...ys) + margin - top];
-  const cells = new Map<string, Plant[]>();
-  const count = Math.round((wide * tall) / 260);
-  for (let i = 0; i < count; i++) {
-    const x = left + random() * wide;
-    const y = top + random() * tall;
-    const tree = random() < 0.12;
-    const r = tree ? 2.6 + random() * 2.4 : 0.5 + random() * 0.9;
-    const clear = stage.halfWidth + r + (tree ? 3 : 0.5);
-    if (stage.points.some((p) => Math.hypot(p[0] - x, p[1] - y) < clear)) continue;
-    const key = `${Math.floor(x / CELL)},${Math.floor(y / CELL)}`;
-    const cell = cells.get(key);
-    if (cell) cell.push({ x, y, r, tree });
-    else cells.set(key, [{ x, y, r, tree }]);
+// The stage and its drawing are built once and kept, so driving it again starts at once.
+let built: { stage: Stage; world: World } | null = null;
+let failed = false;
+function build(): { stage: Stage; world: World } {
+  if (!built) {
+    const stage = buildStage();
+    built = { stage, world: createWorld(stage) };
   }
-  return cells;
+  return built;
 }
 
-interface Dust {
-  x: number;
-  y: number;
+/**
+ * Build the stage ahead of time, when the page is idle, so the cut from the drawing into the game is
+ * instant. Safe to call more than once. If it cannot be built, `startRally` will say so.
+ */
+export function warmRally(): void {
+  if (built || failed) return;
+  const run = (): void => {
+    try {
+      build();
+    } catch {
+      failed = true;
+    }
+  };
+  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 600 });
+  else setTimeout(run, 0);
+}
+
+interface Dust extends Puff {
   vx: number;
   vy: number;
+  rise: number;
   age: number;
   life: number;
   size: number;
 }
 
 export function startRally(host: RallyHost): Rally {
-  const stage = buildStage();
-  const bush = growBush(stage);
+  const { stage, world } = build();
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let trial: Trial = newTrial(stage);
 
-  // --- The page: a canvas and a few readouts
+  // --- The page: the drawing and a few readouts
   const root = document.createElement('div');
   root.id = 'rally';
   root.tabIndex = -1;
   root.setAttribute('role', 'application');
   root.setAttribute('aria-label', 'Safari stage time trial. Arrow keys or W A S D to drive, R to restart, Escape to leave.');
   root.innerHTML = `
-    <canvas></canvas>
     <div class="way"></div>
     <div class="hud clock"><span>Safari stage · Time</span><b data-time>0:00.00</b></div>
-    <div class="hud call" data-call><b data-call-big></b><span data-call-small></span></div>
+    <div class="hud call" data-call aria-live="assertive"><b data-call-big></b><span data-call-small></span></div>
     <div class="hud keys"><span>Arrows or WASD · drive</span><span>R · restart</span><span>M · sound</span><span>Esc · leave</span></div>`;
-  document.body.append(root);
+  root.prepend(world.canvas);
   const part = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
-  const canvas = part<HTMLCanvasElement>('canvas');
-  const ctx = canvas.getContext('2d')!;
   const [timeEl, callEl, callBig, callSmall, wayEl] = [part('[data-time]'), part('[data-call]'), part('[data-call-big]'), part('[data-call-small]'), part('.way')];
 
   // The top ten, and the name box on the finish panel. When the box closes the keys come back to the game.
   const board = createBoardHud(root, callEl, () => root.focus());
 
-  let colours = {} as Colours;
-  const readColours = (): void => {
-    const css = getComputedStyle(document.documentElement);
-    for (const name of TOKENS) colours[name] = css.getPropertyValue(`--${name}`).trim();
-  };
-  readColours();
+  world.applyTheme();
   const scheme = matchMedia('(prefers-color-scheme: dark)');
-  scheme.addEventListener('change', readColours);
-
-  let width = 1;
-  let height = 1;
-  let scale = 8;
-  const resize = (): void => {
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    width = window.innerWidth;
-    height = window.innerHeight;
-    canvas.width = Math.round(width * ratio);
-    canvas.height = Math.round(height * ratio);
-    // Pixels per metre: enough of the road ahead to react to, on any shape of screen.
-    scale = Math.max(5, Math.min(width / 150, height / 84));
-  };
+  scheme.addEventListener('change', world.applyTheme);
+  const resize = (): void => world.resize(window.innerWidth, window.innerHeight);
   resize();
   window.addEventListener('resize', resize);
 
-  // --- Shapes that never change
-  const road = new Path2D();
-  stage.points.forEach(([x, y], i) => (i ? road.lineTo(x, y) : road.moveTo(x, y)));
-  const body = shape(planOutline());
-  const cabin = shape(cabinOutline());
-  const roof = shape(roofOutline());
-  const scoop = shape(scoopOutline());
-  const wing = shape(wingOutline());
+  // --- The run: the car, the camera behind it, and the 3-2-1 before it may move
+  let chase: Chase = newChase(trial.car);
+  /** Seconds since the car lined up. */
+  let waited = 0;
+  let steer = 0;
+  let rolled = 0;
+  let dive = 0;
+  let lean = 0;
+  const dust: Dust[] = [];
+  const restart = (): void => {
+    trial = newTrial(stage);
+    trial.index = locate(stage, trial.car.x, trial.car.y, trial.index).index;
+    chase = newChase(trial.car);
+    board.reset();
+    waited = steer = dive = lean = 0;
+    dust.length = 0;
+  };
 
   // --- Keys
   const held = new Set<string>();
   const DRIVE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD']);
-  const restart = (): void => {
-    trial = newTrial(stage);
-    board.reset();
-    steer = 0;
-    dust.length = 0;
-    look.x = look.y = 0;
-  };
   const onKeyDown = (e: KeyboardEvent): void => {
     // While a name is being typed, the letters are letters.
     if (board.takesKey(e)) return;
@@ -183,16 +140,16 @@ export function startRally(host: RallyHost): Rally {
   window.addEventListener('keyup', onKeyUp, true);
   window.addEventListener('blur', letGo);
 
-  let steer = 0;
+  const down = (...codes: string[]) => codes.some((c) => held.has(c));
   const readInput = (dt: number): DriveInput => {
-    const down = (...codes: string[]) => codes.some((c) => held.has(c));
     const want = (down('ArrowRight', 'KeyD') ? 1 : 0) - (down('ArrowLeft', 'KeyA') ? 1 : 0);
     steer = easeSteer(steer, want, dt);
+    // Until the count reaches Go the pedals do nothing, so the clock cannot start early.
+    if (countdown(waited).held) return { throttle: 0, brake: 0, steer };
     return { throttle: down('ArrowUp', 'KeyW') ? 1 : 0, brake: down('ArrowDown', 'KeyS') ? 1 : 0, steer };
   };
 
-  // --- Dust
-  const dust: Dust[] = [];
+  // --- Dust from the rear wheels
   const random = scatter(7);
   let owed = 0;
   const raiseDust = (dt: number): void => {
@@ -204,176 +161,88 @@ export function startRally(host: RallyHost): Rally {
     const sin = Math.sin(trial.car.heading);
     while (owed >= 1) {
       owed -= 1;
-      const wheel = WHEEL_SPOTS[2 + (dust.length % 2)]!.at;
-      const [ahead, right] = [wheel[0] * UNIT, wheel[1] * UNIT];
+      if (dust.length >= MOST_DUST) continue;
+      const [ahead, right] = [WHEELS.rearZ * UNIT, (dust.length % 2 ? 1 : -1) * WHEELS.track * UNIT];
       dust.push({
-        x: trial.car.x + ahead * cos - right * sin + (random() - 0.5),
-        y: trial.car.y + ahead * sin + right * cos + (random() - 0.5),
+        x: trial.car.x + ahead * cos - right * sin + (random() - 0.5) * 0.6,
+        y: trial.car.y + ahead * sin + right * cos + (random() - 0.5) * 0.6,
+        height: 0.2,
         vx: trial.car.vx * 0.12 + (random() - 0.5) * 2,
         vy: trial.car.vy * 0.12 + (random() - 0.5) * 2,
+        rise: 0.5 + random() * 1.1,
         age: 0,
         life: 0.9 + random() * 0.9,
-        size: 0.8 + random() * 0.6,
+        size: 0.9 + random() * 0.7,
+        width: 0,
+        fade: 0,
       });
     }
+    let kept = 0;
     for (const d of dust) {
       d.age += dt;
+      if (d.age >= d.life) continue;
+      const t = d.age / d.life;
       d.x += d.vx * dt;
       d.y += d.vy * dt;
+      d.height += d.rise * dt;
       d.vx *= 1 - 2 * dt;
       d.vy *= 1 - 2 * dt;
+      d.width = d.size * (1 + t * 2.6);
+      d.fade = 0.4 * (1 - t);
+      dust[kept++] = d;
     }
-    let kept = 0;
-    for (const d of dust) if (d.age < d.life) dust[kept++] = d;
-    dust.length = Math.min(kept, 500);
+    dust.length = kept;
   };
 
-  // --- Drawing
-  /** The camera looks a little ahead of the car, the way it is travelling. */
-  const look = { x: 0, y: 0 };
-
-  const drawLine = (distance: number, paint: () => void): void => {
-    const { x, y, heading } = poseAt(stage, distance);
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(heading);
-    paint();
-    ctx.restore();
+  /** The body on its springs: the nose lifts under power and dips under braking, and it leans out of a turn. */
+  const settleBody = (before: { forward: number; heading: number }, dt: number): void => {
+    const { forward } = carSpeeds(trial.car);
+    const push = (forward - before.forward) / dt;
+    const turning = ((trial.car.heading - before.heading) / dt) * forward;
+    const ease = 1 - Math.exp(-dt * 8);
+    const limit = (v: number, most: number) => Math.min(most, Math.max(-most, v));
+    dive += (limit(-push * 0.0014, 0.04) - dive) * ease;
+    lean += (limit(-turning * 0.0016, 0.05) - lean) * ease;
+    rolled += forward * dt;
   };
 
-  const draw = (dt: number): void => {
-    const car = trial.car;
-    const ease = 1 - Math.exp(-dt * 2.5);
-    look.x += (car.vx * 0.55 - look.x) * ease;
-    look.y += (car.vy * 0.55 - look.y) * ease;
-    const cx = car.x + look.x;
-    const cy = car.y + look.y;
-    const ratio = canvas.width / width;
-    const zoom = scale * ratio;
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = colours.savannah;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(zoom, 0, 0, zoom, canvas.width / 2 - cx * zoom, canvas.height / 2 - cy * zoom);
-
-    // The road: red murram with a darker verge, and broken ruts so its speed shows
-    ctx.lineJoin = ctx.lineCap = 'round';
-    ctx.strokeStyle = colours['murram-edge'];
-    ctx.lineWidth = stage.halfWidth * 2 + 1.8;
-    ctx.stroke(road);
-    ctx.strokeStyle = colours.murram;
-    ctx.lineWidth = stage.halfWidth * 2;
-    ctx.stroke(road);
-    ctx.lineCap = 'butt';
-    ctx.globalAlpha = 0.16;
-    ctx.strokeStyle = colours['murram-edge'];
-    ctx.lineWidth = stage.halfWidth * 0.9;
-    ctx.setLineDash([5, 11]);
-    ctx.stroke(road);
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 1;
-
-    // Start line, and a chequered finish
-    const half = stage.halfWidth;
-    drawLine(stage.startAt + 5, () => {
-      ctx.fillStyle = colours.paper;
-      ctx.fillRect(-0.4, -half, 0.8, half * 2);
+  const draw = (): void => {
+    const { forward } = carSpeeds(trial.car);
+    world.draw({
+      car: trial.car,
+      steer,
+      rolled,
+      dive: calm ? 0 : dive,
+      lean: calm ? 0 : lean,
+      ...chaseView(chase, trial.car),
+      fov: chaseFov(forward, calm),
+      dust,
     });
-    drawLine(stage.finishAt, () => {
-      const square = half / 4;
-      for (let row = 0; row < 2; row++) {
-        for (let i = 0; i < 8; i++) {
-          ctx.fillStyle = (i + row) % 2 ? colours.ink : colours.paper;
-          ctx.fillRect(row * square, -half + i * square, square, square);
-        }
-      }
-    });
-
-    // The bush, only the squares in view
-    const reachX = canvas.width / zoom / 2 + 8;
-    const reachY = canvas.height / zoom / 2 + 8;
-    for (let gx = Math.floor((cx - reachX) / CELL); gx <= Math.floor((cx + reachX) / CELL); gx++) {
-      for (let gy = Math.floor((cy - reachY) / CELL); gy <= Math.floor((cy + reachY) / CELL); gy++) {
-        for (const plant of bush.get(`${gx},${gy}`) ?? []) {
-          if (plant.tree) {
-            ctx.globalAlpha = 0.22;
-            ctx.fillStyle = colours['ground-shade'];
-            ctx.beginPath();
-            ctx.arc(plant.x + 1.2, plant.y + 1.6, plant.r, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.globalAlpha = 1;
-          }
-          ctx.fillStyle = plant.tree ? colours.acacia : colours.scrub;
-          ctx.beginPath();
-          ctx.arc(plant.x, plant.y, plant.r, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-    }
-
-    // Dust behind the car
-    ctx.fillStyle = colours.dust;
-    for (const d of dust) {
-      const t = d.age / d.life;
-      ctx.globalAlpha = 0.34 * (1 - t);
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, d.size * (1 + t * 3.2), 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    // The car, in its own units: x towards the nose, y to its right
-    ctx.translate(car.x, car.y);
-    ctx.save();
-    ctx.translate(0.5, 0.7);
-    ctx.rotate(car.heading);
-    ctx.scale(UNIT, UNIT);
-    ctx.globalAlpha = 0.3;
-    ctx.fillStyle = colours['ground-shade'];
-    ctx.fill(body);
-    ctx.restore();
-    ctx.globalAlpha = 1;
-    ctx.rotate(car.heading);
-    ctx.scale(UNIT, UNIT);
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = 1.1;
-    ctx.strokeStyle = colours['body-line'];
-    ctx.fillStyle = colours['body-blue'];
-    ctx.fill(body);
-    ctx.stroke(body);
-    ctx.fillStyle = colours['body-dark'];
-    ctx.fill(cabin);
-    ctx.fill(scoop);
-    ctx.fillStyle = colours['body-light'];
-    ctx.fill(roof);
-    ctx.fill(wing);
-    ctx.lineWidth = 0.7;
-    ctx.stroke(wing);
-    // Gold wheels, the front pair turned with the steering
-    ctx.fillStyle = colours['wheel-gold'];
-    for (const wheel of WHEEL_SPOTS) {
-      ctx.save();
-      ctx.translate(wheel.at[0], wheel.at[1]);
-      if (wheel.front) ctx.rotate(steer * 0.5);
-      ctx.fillRect(-WHEEL_SIZE.length / 2, -WHEEL_SIZE.width / 2, WHEEL_SIZE.length, WHEEL_SIZE.width);
-      ctx.strokeRect(-WHEEL_SIZE.length / 2, -WHEEL_SIZE.width / 2, WHEEL_SIZE.length, WHEEL_SIZE.width);
-      ctx.restore();
-    }
   };
 
   const showReadouts = (): void => {
     timeEl.textContent = formatTime(trial.time);
     wayEl.style.width = `${(Math.min(1, Math.max(0, (trial.progress - stage.startAt) / (stage.finishAt - stage.startAt))) * 100).toFixed(1)}%`;
-    callEl.hidden = trial.phase === 'running';
-    if (trial.phase === 'ready') {
-      callBig.textContent = 'Ready';
-      callBig.classList.remove('gold');
-      callSmall.textContent = 'The clock starts when you press Up or W';
-    } else if (trial.phase === 'finished') {
-      callBig.textContent = formatTime(trial.time);
-      callBig.classList.toggle('gold', board.isBest());
-      callSmall.textContent = board.note();
+    const { call, held: waiting } = countdown(waited);
+    let big = '';
+    let small = '';
+    if (trial.phase === 'finished') {
+      big = formatTime(trial.time);
+      small = board.note();
+    } else if (waiting) {
+      big = call ?? '';
+      small = 'Get ready';
+    } else if (trial.phase === 'ready') {
+      big = 'Go';
+      small = 'The clock starts when you press Up or W';
+    } else if (call) {
+      big = call;
     }
+    callEl.hidden = big === '';
+    if (callBig.textContent !== big) callBig.textContent = big;
+    if (callSmall.textContent !== small) callSmall.textContent = small;
+    callSmall.hidden = small === '';
+    callBig.classList.toggle('gold', trial.phase === 'finished' && board.isBest());
   };
 
   // --- The loop
@@ -389,15 +258,19 @@ export function startRally(host: RallyHost): Rally {
     while (bank >= STEP) {
       bank -= STEP;
       const was = trial.phase;
+      const before = { forward: carSpeeds(trial.car).forward, heading: trial.car.heading };
+      waited += STEP;
       stepTrial(stage, trial, readInput(STEP), STEP);
+      settleBody(before, STEP);
+      chase = stepChase(chase, trial.car, STEP);
       raiseDust(STEP);
       if (was === 'running' && trial.phase === 'finished') board.finished(trial.time);
     }
     // The exhaust synth follows these.
     revs += (engineRpm(carSpeeds(trial.car).forward) - revs) * (1 - Math.exp(-dt * 12));
     host.engine.rpm = revs;
-    host.engine.throttle = trial.phase === 'running' && (held.has('ArrowUp') || held.has('KeyW'));
-    draw(dt);
+    host.engine.throttle = trial.phase === 'running' && down('ArrowUp', 'KeyW');
+    draw();
     showReadouts();
     requestAnimationFrame(frame);
   };
@@ -409,18 +282,20 @@ export function startRally(host: RallyHost): Rally {
     window.removeEventListener('keyup', onKeyUp, true);
     window.removeEventListener('blur', letGo);
     window.removeEventListener('resize', resize);
-    scheme.removeEventListener('change', readColours);
+    scheme.removeEventListener('change', world.applyTheme);
     host.engine.throttle = false;
     root.remove();
     host.onExit();
   }
 
-  // Start already located on the road, then fade in.
-  trial.index = locate(stage, trial.car.x, trial.car.y, trial.index).index;
+  // Cut straight in: the first frame is drawn before the stage is put on the page.
+  restart();
+  draw();
+  showReadouts();
+  document.body.append(root);
   root.focus();
   requestAnimationFrame((now) => {
     previous = now;
-    root.classList.add('on');
     frame(now);
   });
 

@@ -20,11 +20,18 @@ export const DEFAULT_FOV = 34;
 /** The engine chapter runs from this sheet to this one. The sheets either side show the whole car. */
 export const ENGINE_FIRST_SHEET = 1;
 export const ENGINE_LAST_SHEET = 5;
-export const LAST_SHEET = 6;
+/** The rally timeline, once the camera has pulled back out of the engine. Wide screens only. */
+export const HERITAGE_SHEET = 6;
+/** The Safari stage: the car turns away and drives off here. */
+export const DRIVE_OFF_SHEET = 7;
+/** The specs table, after the game. Wide screens only. */
+export const LAST_SHEET = 8;
 
 type View = Pick<CameraKey, 'position' | 'target' | 'fov'>;
 /** The whole car, front three-quarter, on a long lens at door-handle height. */
 const WHOLE_CAR: View = { position: [40.3, 2.5, 50.8], target: [0, 1.0, -9.0], fov: 20 };
+/** The same view tipped down, which lifts the car to the top of the sheet and leaves the bottom for the timeline. */
+const ABOVE_TIMELINE: View = { ...WHOLE_CAR, target: [0, -4.0, -9.0] };
 /** Standing in front of the car looking down into the engine bay. */
 const OVER_BONNET: View = { position: [3.5, 10.5, 24], target: [0, 1.2, 0.5], fov: 28 };
 
@@ -37,34 +44,26 @@ export const CAMERA_KEYS: readonly CameraKey[] = [
   { at: 4, position: [4.6, -6.2, 6.8], target: [0, -0.7, -0.5] }, // underside
   { at: 5, position: [-6.2, 2.6, 6.4], target: [0, -0.4, 0] }, // rear three-quarter
   { at: 5.45, ...OVER_BONNET }, // on the way out
-  { at: 6, ...WHOLE_CAR },
+  { at: HERITAGE_SHEET, ...ABOVE_TIMELINE }, // pulled back, with the rally timeline below
+  { at: DRIVE_OFF_SHEET, ...WHOLE_CAR }, // the car drives off into the Safari stage
+  { at: LAST_SHEET, ...WHOLE_CAR }, // the specs table
 ];
 
 /** The X-ray sheet: from the car's side and above, so the drivetrain reads as one line from nose to tail. */
 const XRAY: View = { position: [60.5, 28, 19.2], target: [0, 0.5, -9], fov: 20 };
 
-/** On wide screens the X-ray sheet is the second one, between the opening sheet and the dive under the bonnet. */
-export const XRAY_SHEET = 1;
-
-/** A place in the story: the sheet, counted as if the X-ray sheet were not there, and how far the X-ray has come on (0 to 1). */
-export interface Story {
-  sheet: number;
-  xray: number;
-}
-
 /**
- * Turn the scroll position, measured in sheets on the page, into a place in the story.
- * The X-ray sheet is a stop of its own: the rest of the story waits on the opening sheet while it comes
- * on, and it has gone again before the bonnet starts to lift. Without it the two are the same thing.
+ * How far the X-ray has come on (0 to 1), from how far the scroll is from the X-ray sheet, in sheets.
+ * It comes on over the scroll down from the opening sheet, and has gone again soon after, before the
+ * bonnet starts to lift. The X-ray sheet is a stop of its own, outside the story: see `storyNumbers`
+ * in `src/ui/sheets.ts`.
  */
-export function storyAt(scroll: number, hasXray: boolean): Story {
-  if (!hasXray) return { sheet: scroll, xray: 0 };
-  const ramp = (from: number, to: number) => smoothstep(Math.min(1, Math.max(0, (scroll - from) / (to - from))));
-  if (scroll <= XRAY_SHEET) return { sheet: Math.min(0, scroll), xray: ramp(XRAY_SHEET - 0.75, XRAY_SHEET - 0.2) };
-  return { sheet: scroll - 1, xray: 1 - ramp(XRAY_SHEET + 0.02, XRAY_SHEET + 0.25) };
+export function xrayAmount(offset: number): number {
+  const ramp = (from: number, to: number) => smoothstep(Math.min(1, Math.max(0, (offset - from) / (to - from))));
+  return offset <= 0 ? ramp(-0.75, -0.2) : 1 - ramp(0.02, 0.25);
 }
 
-/** Where the camera should be at a place in the story: `sheet` as in `Story`, pulled towards the X-ray view by `xray`. */
+/** Where the camera should be at a sheet of the story, pulled towards the X-ray view by `xray` (0 to 1). */
 export function cameraAt(sheet: number, xray = 0): CameraView {
   const view = storyCamera(sheet);
   if (xray <= 0) return view;
@@ -93,7 +92,7 @@ function storyCamera(sheet: number): CameraView {
  */
 export function diveDepth(sheet: number): number {
   if (sheet <= ENGINE_FIRST_SHEET) return Math.max(0, sheet / ENGINE_FIRST_SHEET);
-  if (sheet >= ENGINE_LAST_SHEET) return Math.max(0, (LAST_SHEET - sheet) / (LAST_SHEET - ENGINE_LAST_SHEET));
+  if (sheet >= ENGINE_LAST_SHEET) return Math.max(0, (HERITAGE_SHEET - sheet) / (HERITAGE_SHEET - ENGINE_LAST_SHEET));
   return 1;
 }
 

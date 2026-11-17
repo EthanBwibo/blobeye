@@ -2,14 +2,15 @@ import './styles.css';
 import { ExhaustSynth } from './audio/exhaust';
 import { createEngineState, stepEngine } from './engine/model';
 import { DRIVETRAIN } from './car/drivetrain';
-import { LAST_SHEET, storyAt } from './scene/camera';
+import { DRIVE_OFF_SHEET, xrayAmount } from './scene/camera';
 import { createEngineScene, type EngineScene } from './scene/engineScene';
 import { bindControls } from './ui/controls';
 import { initIntro } from './ui/intro';
 import { initRallyGate } from './ui/rallyGate';
-import { clearFraction, initNotes, initSheets, trackDockHeight } from './ui/layout';
+import { clearFraction, initNotes, trackDockHeight } from './ui/layout';
 import { updateReadouts } from './ui/readouts';
 import { initScroll } from './ui/scroll';
+import { offsetFrom, sheetAt, visibleSheets } from './ui/sheets';
 
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const state = createEngineState();
@@ -18,16 +19,21 @@ const synth = new ExhaustSynth(state);
 const canvas = document.getElementById('gl') as HTMLCanvasElement;
 const cylinderLabels = [1, 2, 3, 4].map((n) => document.getElementById(`t${n}`)!);
 const frontLabel = document.getElementById('tfront')!;
-const { sheets, hasXray } = initSheets();
 initNotes();
 // The names on the X-ray sheet's drawing come from the same list as the parts themselves.
-const partLabels = (hasXray ? DRIVETRAIN : []).map((part) => {
+const xraySheet = document.getElementById('xraySheet');
+const partLabels = (xraySheet ? DRIVETRAIN : []).map((part) => {
   const label = document.createElement('div');
   label.className = 'tag part';
   label.textContent = part.label;
   canvas.parentElement!.append(label);
   return label;
 });
+
+// Every sheet has a number in the story, which the camera follows. Phones leave some sheets out.
+const allSheets = Array.from(document.querySelectorAll<HTMLElement>('.view'));
+let sheets = visibleSheets(allSheets);
+window.addEventListener('resize', () => (sheets = visibleSheets(allSheets)));
 
 // The drawing needs WebGL. Without it the notes and readouts still work.
 let scene: EngineScene | null = null;
@@ -62,7 +68,7 @@ if (scene) {
 }
 
 // The intro holds the page until the visitor chooses; "with sound" presses the dock's own engine button.
-const scroll = initScroll(sheets, reducedMotion);
+const scroll = initScroll(sheets.map((s) => s.el), reducedMotion);
 initIntro(scroll, reducedMotion, (withSound) => {
   if (withSound) document.getElementById('sound')?.click();
 });
@@ -82,18 +88,19 @@ const rally = initRallyGate({
   },
 });
 
-/** Scroll position measured in sheets: 0 at the first sheet. */
+/** Scroll position measured in sheets of the story: 0 at the first sheet. */
 function currentSheet(): number {
-  const y = window.scrollY;
-  for (let i = sheets.length - 1; i >= 0; i--) {
-    const top = sheets[i]!.offsetTop;
-    if (y >= top || i === 0) {
-      const next = sheets[i + 1]?.offsetTop ?? top + sheets[i]!.offsetHeight;
-      const within = Math.max(0, Math.min(1, (y - top) / Math.max(1, next - top)));
-      return Math.min(sheets.length - 1, i + within);
-    }
-  }
-  return 0;
+  return sheetAt(
+    window.scrollY,
+    sheets.map((s) => ({ top: s.el.offsetTop, index: s.index })),
+  );
+}
+
+/** How far the X-ray has come on, 0 to 1. Always 0 on phones, where its sheet is left out. */
+function currentXray(): number {
+  const i = sheets.findIndex((s) => s.el === xraySheet);
+  if (i < 0) return 0;
+  return xrayAmount(offsetFrom(window.scrollY, sheets.map((s) => s.el.offsetTop), i));
 }
 
 let previous = performance.now();
@@ -102,12 +109,12 @@ function frame(now: number): void {
   previous = now;
   synth.update();
   if (!playing) {
-    const { sheet, xray } = storyAt(currentSheet(), hasXray);
+    const sheet = currentSheet();
     stepEngine(state, dt, reducedMotion);
-    scene?.render(dt, sheet, xray);
+    scene?.render(dt, sheet, currentXray());
     updateReadouts(state, scene?.firing ?? [], cylinderLabels);
-    // On the last sheet the car drives off, and the stage takes its place.
-    rally.update(sheet > LAST_SHEET - 0.03, sheet < LAST_SHEET - 0.1, scene?.carGone ?? false);
+    // On the Safari sheet the car drives off, and the stage takes its place.
+    rally.update(Math.abs(sheet - DRIVE_OFF_SHEET) < 0.03, sheet < DRIVE_OFF_SHEET - 0.1, scene?.carGone ?? false);
   }
   requestAnimationFrame(frame);
 }
