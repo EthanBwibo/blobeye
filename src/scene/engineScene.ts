@@ -13,6 +13,7 @@ import {
 import { CAR_CENTRE, ENGINE_BAY, WHEELS } from '../car/model';
 import { DRIVE_OFF_SHEET, ENGINE_FIRST_SHEET, NARROW_WIDTH, cameraAt, cameraDistanceScale, diveDepth, narrowCentre, smoothstep } from './camera';
 import { createCar } from './carScene';
+import { lightStudio } from './studio';
 import { XRAY_LAYER, createDrivetrain } from './drivetrainScene';
 
 export interface EngineScene {
@@ -407,6 +408,7 @@ export function createEngineScene(
   }
 
   setHeaders(state.mode);
+  lightStudio(renderer, scene);
   applyTheme();
   resize();
 
