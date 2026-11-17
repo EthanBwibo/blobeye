@@ -76,8 +76,6 @@ const OUTLINE = 0.22;
 const DEGREE = Math.PI / 180;
 /** Roughly how far one degree round the nose or tail is, in car units. */
 const PER_DEGREE = 0.36;
-/** Below this height the paint takes its darkest tone. */
-const LOW_BODY = 9.6;
 
 const vec = (p: Point) => new THREE.Vector3(p[0], p[1], p[2]);
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -85,59 +83,16 @@ const circle = (r: number, z: number, n = 56) =>
   Array.from({ length: n }, (_, i) => new THREE.Vector3(Math.cos((i / n) * Math.PI * 2) * r, Math.sin((i / n) * Math.PI * 2) * r, z));
 
 /**
- * The paint. Flat colour in three tones, chosen by which way a surface faces rather than by a light:
- * lightest where it faces up, darkest low on the body and underneath, the middle tone everywhere else.
+ * The paint: a physically lit metallic blue under a clearcoat. It takes its light and reflections from the
+ * studio around it (see `lightStudio`), so the reflections slide over the body as it turns.
  */
-function paintMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      light: { value: new THREE.Color() },
-      mid: { value: new THREE.Color() },
-      shade: { value: new THREE.Color() },
-      /** The clearcoat: the colour of the light it throws back. */
-      gloss: { value: new THREE.Color() },
-      low: { value: LOW_BODY },
-      opacity: { value: 1 },
-    },
-    vertexShader: `
-      varying vec3 vNormal;
-      varying vec3 vSeenNormal;
-      varying vec3 vSeenFrom;
-      varying float vHeight;
-      void main() {
-        vNormal = normal;
-        vHeight = position.y;
-        vec4 seen = modelViewMatrix * vec4(position, 1.0);
-        vSeenNormal = normalMatrix * normal;
-        vSeenFrom = -seen.xyz;
-        gl_Position = projectionMatrix * seen;
-      }`,
-    fragmentShader: `
-      uniform vec3 light;
-      uniform vec3 mid;
-      uniform vec3 shade;
-      uniform vec3 gloss;
-      uniform float low;
-      uniform float opacity;
-      varying vec3 vNormal;
-      varying vec3 vSeenNormal;
-      varying vec3 vSeenFrom;
-      varying float vHeight;
-      void main() {
-        float facing = gl_FrontFacing ? 1.0 : -1.0;
-        float up = normalize(vNormal).y * facing;
-        vec3 tone = up > 0.6 ? light : (up < -0.35 || vHeight < low ? shade : mid);
-        // Clearcoat: a tight highlight from a light above and behind the viewer's shoulder, and a faint
-        // sheen where the paint turns away. Both ride with the camera, so they slide over the body as it turns.
-        vec3 n = normalize(vSeenNormal) * facing;
-        vec3 eye = normalize(vSeenFrom);
-        vec3 lamp = normalize(vec3(0.35, 0.85, 0.4));
-        float glint = pow(max(dot(n, normalize(lamp + eye)), 0.0), 70.0);
-        float sheen = pow(1.0 - max(dot(n, eye), 0.0), 4.0);
-        tone = mix(tone, gloss, min(0.75, 0.6 * glint + 0.14 * sheen));
-        gl_FragColor = vec4(tone, opacity);
-        #include <colorspace_fragment>
-      }`,
+function paintMaterial(): THREE.MeshPhysicalMaterial {
+  return new THREE.MeshPhysicalMaterial({
+    metalness: 0.45,
+    roughness: 0.38,
+    clearcoat: 1,
+    clearcoatRoughness: 0.06,
+    envMapIntensity: 1.1,
     side: THREE.DoubleSide,
     polygonOffset: true,
     polygonOffsetFactor: 1,
@@ -388,7 +343,7 @@ function bowed(outline: readonly Pair[], xs: readonly number[], rise: (x: number
 export function createCar(): Car {
   const flat = () => new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
   const mat = {
-    /** Paint, in three tones by which way the surface faces. */
+    /** The paint: lit, metallic, under a clearcoat. */
     body: paintMaterial(),
     /** The paint's middle and darkest tones as plain colours, for small parts laid on the body. */
     paint: flat(),
@@ -858,10 +813,7 @@ export function createCar(): Car {
     const fill = (to: THREE.Color, name: string, much = 1, scale = 1) => ({ to, from: token(name).multiplyScalar(scale), drained: paper, much });
     const edge = (to: THREE.Color) => ({ to, from: token('--body-line'), drained: ink, much: 1 });
     paints = [
-      fill(mat.body.uniforms.light!.value, '--body-light'),
-      fill(mat.body.uniforms.mid!.value, '--body-blue'),
-      fill(mat.body.uniforms.shade!.value, '--body-shade'),
-      fill(mat.body.uniforms.gloss!.value, '--clearcoat'),
+      fill(mat.body.color, '--body-blue'),
       fill(mat.paint.color, '--body-blue'),
       fill(mat.shade.color, '--body-shade'),
       fill(mat.dark.color, '--body-dark'),

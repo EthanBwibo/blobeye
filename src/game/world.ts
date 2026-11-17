@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import { WHEELS } from '../car/model';
 import { createCar } from '../scene/carScene';
+import { lightStudio } from '../scene/studio';
 import type { Place } from './chase';
 import type { CarState } from './handling';
 import { groundAt, roomAt } from './hazards';
@@ -590,6 +591,7 @@ export function createWorld(stage: Stage): World {
     renderer.render(scene, camera);
   };
 
+  lightStudio(renderer, scene);
   // Have the shaders ready before the first frame, so the cut into the stage does not stutter.
   renderer.compile(scene, camera);
 
