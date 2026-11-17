@@ -82,11 +82,11 @@ export function startRally(host: RallyHost): Rally {
   root.innerHTML = `
     <div class="way"></div>
     <div class="hud clock"><span>Safari stage · Time</span><b data-time>0:00.00</b></div>
-    <div class="hud call" data-call aria-live="assertive"><b data-call-big></b><span data-call-small></span></div>
+    <div class="hud call" data-call aria-live="assertive"><b data-call-big></b><span data-call-small></span><small data-credit hidden>Unofficial fan project. Subaru didn't ask for this.</small></div>
     <div class="hud keys"><span>Arrows or WASD · drive</span><span>R · restart</span><span>M · sound</span><span>Esc · leave</span></div>`;
   root.prepend(world.canvas);
   const part = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
-  const [timeEl, callEl, callBig, callSmall, wayEl] = [part('[data-time]'), part('[data-call]'), part('[data-call-big]'), part('[data-call-small]'), part('.way')];
+  const [timeEl, callEl, callBig, callSmall, credit, wayEl] = [part('[data-time]'), part('[data-call]'), part('[data-call-big]'), part('[data-call-small]'), part('[data-credit]'), part('.way')];
 
   // The top ten, and the name box on the finish panel. When the box closes the keys come back to the game.
   const board = createBoardHud(root, callEl, () => root.focus());
@@ -242,6 +242,8 @@ export function startRally(host: RallyHost): Rally {
     if (callBig.textContent !== big) callBig.textContent = big;
     if (callSmall.textContent !== small) callSmall.textContent = small;
     callSmall.hidden = small === '';
+    // The end screen carries the fan project note.
+    credit.hidden = trial.phase !== 'finished';
     callBig.classList.toggle('gold', trial.phase === 'finished' && board.isBest());
   };
 

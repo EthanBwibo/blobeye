@@ -29,3 +29,4 @@
 #rally .call{left:50%; top:22%; transform:translateX(-50%); align-items:center; text-align:center; padding:14px 22px; gap:6px}
 #rally .call b{font-size:56px}
 #rally .call b.gold{color:var(--gold)}
+#rally .call small{font-size:10px; color:var(--ink-soft)}

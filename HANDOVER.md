@@ -16,8 +16,8 @@ Reference sites for feel: lusion.co and unseen.co (scrolling and motion), oryzo.
 
 - Ten sheets on a laptop, seven on a phone. The engine chapter: five sheets, scroll-driven camera, live firing order, exhaust pulses, hold-to-rev, header switch, light and dark themes.
 - The X-ray sheet (sheet 2), on screens wider than 760px only: the paint drains out of the body, leaving a line drawing, and a simplified drivetrain shows in gold with its six parts named.
-- The rally timeline (sheet 8) and the 2004 specs table (sheet 10), on screens wider than 760px only. Every entry and figure is in `docs/FACTS.md` with its source.
-- The Safari stage on sheet 9: when the car drives off, the page cuts to a time trial in 3D, seen from a chase camera behind the car, with a 3-2-1 start. One gravel stage of about a minute, arrow keys or WASD, dust, a clock, and a top ten (name and time) kept in `localStorage`. Laptop only; phones get a note instead.
+- The rally timeline (sheet 8) and the 2004 specs table (sheet 9), on screens wider than 760px only. Every entry and figure is in `docs/FACTS.md` with its source.
+- The Safari stage on sheet 10, the last thing on the page: when the car drives off, the page cuts to a time trial in 3D, seen from a chase camera behind the car, with a 3-2-1 start. One gravel stage of about a minute, arrow keys or WASD, dust, a clock, and a top ten (name and time) kept in `localStorage`. Laptop only; phones get a note instead.
 - Unit tests on the engine model, the car's shape, the handling, the stage, the chase camera, the start, the scenery, the top ten and the drivetrain. Typecheck and production build pass.
 - Checked in headless Chrome at 1366×768 and 400×820: all sheets render, no page errors, no sideways scroll, controls respond.
 
@@ -98,10 +98,11 @@ Add a new behaviour by putting the numbers in `model.ts` first, testing them, th
 - **Coordinates.** +z is the front of the car, -x is the car's right, +y is up. Cylinder 1 is front right.
 - **The game's coordinates.** The driving is flat: x and y seen from above, heading 0 along +x, turning right makes it grow. `world.ts` draws that as x and z with y up. Things painted on the ground do not write depth and are drawn in order, so they never flicker against each other.
 - **The drawing runs in slow motion.** `drawingRevsPerSecond` is deliberately far slower than the real rpm. The sound uses real rpm.
-- **Adding a sheet** means a `<section class="view">` in `index.html`, a matching entry in `CAMERA_KEYS`, and new values for the sheet numbers below it in `src/scene/camera.ts` (`HERITAGE_SHEET`, `DRIVE_OFF_SHEET`, `LAST_SHEET`). Renumber the "Sheet N" labels in the markup too.
-- **Laptop-only sheets** carry the class `laptop` and are hidden below 760px. They keep their number in the story, so on a phone the scroll from "Hold to rev" to the Safari sheet passes through the timeline's camera key. The "of 10" and "of 7" counts, and the numbers of the sheets after the X-ray, are `on-wide` and `on-narrow` spans.
+- **Adding a sheet** means a `<section class="view">` in `index.html`, a matching entry in `CAMERA_KEYS`, and new values for the sheet numbers below it in `src/scene/camera.ts` (`HERITAGE_SHEET`, `SPECS_SHEET`, `DRIVE_OFF_SHEET`). Renumber the "Sheet N" labels in the markup too.
+- **Laptop-only sheets** carry the class `laptop` and are hidden below 760px. They keep their number in the story, so on a phone the scroll from "Hold to rev" to the Safari sheet passes through the camera keys of the timeline and the specs table. The "of 10" and "of 7" counts, and the numbers of the sheets after the X-ray, are `on-wide` and `on-narrow` spans.
 - **The X-ray sheet is an aside** (`data-aside`). It is not counted in the story and has no entry in `CAMERA_KEYS`: the story waits on sheet 0 while it is in view, and `xrayAmount` in `src/scene/camera.ts` turns the distance from it into how far the X-ray has come on. So the sheet numbers in `camera.ts` are one less than the page shows on a laptop from the X-ray on.
 - **Notes on phones.** Below 760px a panel shows its heading, first sentence and live readout; anything with the class `more` waits behind a More button. Keep each panel's always-visible part short enough that the top 35% of a 360×640 screen stays clear.
+- **The dive into the engine** rises first, crosses the nose at about roof height and looks down into the bay before going down (`RISEN` and `OVER_BAY` in `src/scene/camera.ts`). The numbers were worked out on paper and checked by tests, not seen. The bonnet has no stay.
 - **Reduced motion** is honoured in the scene, the scrolling, the intro and CSS. Keep it that way. With it on, Lenis is not started at all.
 - **Do not add `scroll-behavior: smooth` in CSS.** Lenis drives the scrolling and the two fight.
 
@@ -112,7 +113,8 @@ Add a new behaviour by putting the numbers in `model.ts` first, testing them, th
 - `npm test` and `npm run build` pass before every commit.
 - One issue per branch: `feat/12-smooth-scroll`. Reference the issue in the pull request.
 - **No car fact without a source.** Add it to `docs/FACTS.md` first. If it cannot be confirmed, leave it out or label it as illustrative.
-- No official logos or brand artwork. Keep the "unofficial fan project" line.
+- No official logos or brand artwork. Keep the "unofficial fan project" line: it is on the intro card, the specs sheet and the game's end screen.
+- **Copy.** A fan who knows the car and does not take it too seriously: dry, short, one joke per sheet at most, and no new car facts.
 - Do not commit 3D models, sounds or images without recording their licence.
 
 ## What to do next, in order

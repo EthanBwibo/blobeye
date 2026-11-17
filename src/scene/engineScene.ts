@@ -334,7 +334,7 @@ export function createEngineScene(
     // It stops turning, and squares up, for the X-ray.
     if (!reducedMotion && sheet < 0.5 && xray === 0) turn = (turn + dt * 0.16) % (Math.PI * 2);
     const unwound = turn > Math.PI ? turn - Math.PI * 2 : turn;
-    // On the Safari sheet it turns away and drives off, and it stays gone on the sheet after.
+    // On the Safari sheet, the last one, it turns away and drives off.
     // With reduced motion it turns and stays parked.
     const onLast = sheet > DRIVE_OFF_SHEET - 0.03;
     if (reducedMotion) leaving = onLast ? TURN_TIME : 0;
