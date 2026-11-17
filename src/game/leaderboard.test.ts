@@ -280,11 +280,11 @@ describe('sharedBoard', () => {
       return { ok, status: ok ? 200 : 503, json: async () => rows };
     };
     const replay = replayOf(61.5);
-    const board = sharedBoard(URL, KEY, deviceBoard(null), answer([{ name: 'Tommi', time_ms: 61500, replay }]), 'soysambu');
+    const board = sharedBoard(URL, KEY, deviceBoard(null), answer([{ name: 'Tommi', time_ms: 61500, replay }]), 'roysambu');
     expect(await board.record!()).toEqual({ name: 'Tommi', time: 61.5, replay });
     const query = new URLSearchParams(urls[0]!.split('?')[1]);
     expect(query.get('select')).toBe('name,time_ms,replay');
-    expect(query.get('stage')).toBe('eq.soysambu');
+    expect(query.get('stage')).toBe('eq.roysambu');
     expect(query.get('replay')).toBe('not.is.null');
     expect(query.get('order')).toBe('time_ms.asc,created_at.asc');
     expect(query.get('limit')).toBe('1');
@@ -302,13 +302,13 @@ describe('a board for each stage', () => {
   it("keeps each stage's times apart on the device, with Naivasha's where they always were", async () => {
     const store = fakeStore({ 'blobeye.rally.best': '66' });
     expect(boardKey(STAGE_ID)).toBe('blobeye.rally.top');
-    expect(boardKey('soysambu')).toBe('blobeye.rally.top.soysambu');
+    expect(boardKey('roysambu')).toBe('blobeye.rally.top.roysambu');
     // The old single best time belongs to Naivasha, the only stage there was.
-    expect(await deviceBoard(store, 'soysambu').top()).toEqual([]);
+    expect(await deviceBoard(store, 'roysambu').top()).toEqual([]);
     expect(await deviceBoard(store, STAGE_ID).top()).toEqual([{ name: DEFAULT_NAME, time: 66 }]);
-    await deviceBoard(store, 'soysambu').add({ name: 'Ethan', time: 70 });
-    expect(await deviceBoard(store, 'soysambu').top()).toEqual([{ name: 'Ethan', time: 70 }]);
+    await deviceBoard(store, 'roysambu').add({ name: 'Ethan', time: 70 });
+    expect(await deviceBoard(store, 'roysambu').top()).toEqual([{ name: 'Ethan', time: 70 }]);
     expect(await deviceBoard(store, 'hells-gate').top()).toEqual([]);
-    expect(store.kept.has('blobeye.rally.top.soysambu')).toBe(true);
+    expect(store.kept.has('blobeye.rally.top.roysambu')).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 /**
  * The three stages, as data: the road's line and width, what lies on it, the bush beside it, and the
- * times to beat. Each takes its name from Safari Rally country around Lake Naivasha, but every route is
+ * times to beat. Each takes its name from a place in Kenya, the Safari Rally's country, but every route is
  * invented: none is a map of a real road or a real rally stage.
  *
  * `buildStage` in `stage.ts` turns one of these into a road. Pure data and functions.
@@ -85,9 +85,9 @@ const HELLS_GATE: StageDef = {
 };
 
 /** The ranch: wide, open and quick, over a run of crests, with a herd on the road. */
-const SOYSAMBU: StageDef = {
-  id: 'soysambu',
-  name: 'Soysambu',
+const ROYSAMBU: StageDef = {
+  id: 'roysambu',
+  name: 'Roysambu',
   blurb: 'Fast and open, crests and animals',
   route: [
     [0, 0], [320, 0], [560, -60], [740, -200], [820, -400], [800, -620], [880, -800], [1060, -880], [1280, -860],
@@ -127,12 +127,40 @@ const SOYSAMBU: StageDef = {
   bush: { density: 0.55, trees: 0.04, rocks: 0.02, seed: 1959 },
 };
 
-export const STAGES: readonly StageDef[] = [NAIVASHA, HELLS_GATE, SOYSAMBU];
+export const STAGES: readonly StageDef[] = [NAIVASHA, HELLS_GATE, ROYSAMBU];
 export const DEFAULT_STAGE = NAIVASHA;
 
-/** The stage with this id, or the first one if there is none. */
+/**
+ * Stages that have been renamed: the id they had, and the id they have now. An old id still finds its
+ * stage, and what a device kept under it is moved across (`moveRenamed`).
+ */
+export const RENAMED: Readonly<Record<string, string>> = { soysambu: 'roysambu' };
+
+/** The stage with this id (or the id it had before it was renamed), or the first one if there is none. */
 export function stageById(id: string | null | undefined): StageDef {
-  return STAGES.find((def) => def.id === id) ?? DEFAULT_STAGE;
+  const now = id ? (RENAMED[id] ?? id) : id;
+  return STAGES.find((def) => def.id === now) ?? DEFAULT_STAGE;
+}
+
+type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+/**
+ * Move what this device kept for a renamed stage from its old id to its new one: `keysOf` names every key a
+ * stage's things are kept under, in the same order for any id, and `picked` is the key that holds the last
+ * stage picked. A stored ghost names its stage inside it, so that is rewritten too. Nothing is overwritten:
+ * if the new key already holds something, the old one is dropped. Safe to run every time.
+ */
+export function moveRenamed(store: Store, keysOf: (id: string) => readonly string[], picked: string): void {
+  for (const [from, to] of Object.entries(RENAMED)) {
+    const [olds, news] = [keysOf(from), keysOf(to)];
+    olds.forEach((oldKey, i) => {
+      const kept = store.getItem(oldKey);
+      if (kept === null) return;
+      if (store.getItem(news[i]!) === null) store.setItem(news[i]!, kept.split(`"stage":"${from}"`).join(`"stage":"${to}"`));
+      store.removeItem(oldKey);
+    });
+    if (store.getItem(picked) === from) store.setItem(picked, to);
+  }
 }
 
 /** Lay the road for a stage. */
