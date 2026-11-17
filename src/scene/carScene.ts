@@ -71,7 +71,7 @@ export interface Car {
 
 const SIDES = [1, -1] as const;
 /** How wide a window's frame is: along the car at each end of the pane, and round the body above and below it (in places round the ring). */
-const FRAME = { ends: 0.7, round: 0.22 } as const;
+const FRAME = { ends: 0.45, round: 0.14 } as const;
 const OUTLINE = 0.22;
 const DEGREE = Math.PI / 180;
 /** Roughly how far one degree round the nose or tail is, in car units. */
@@ -464,8 +464,9 @@ export function createCar(): Car {
 
   // --- Glass
   const { glass } = PARTS;
-  const sideLow = RING.shoulder + 0.4;
-  const sideHigh = RING.topEdge - 0.3;
+  // The side glass runs nearly from the belt to the roof edge: a tall, thin-pillared glasshouse.
+  const sideLow = RING.shoulder + 0.2;
+  const sideHigh = RING.topEdge - 0.15;
   const panes: THREE.Mesh[] = [];
   for (const side of SIDES) {
     const front = (t: number) => mix(glass.frontLow, glass.frontTop, t);
@@ -477,8 +478,8 @@ export function createCar(): Car {
       const way = Math.sign(zTo(0.5) - zFrom(0.5));
       panes.push(patch((t) => zFrom(t) + way * FRAME.ends, (t) => zTo(t) - way * FRAME.ends, low + lowInset, high - inset, side, mat.glass, 0.2, false));
     };
-    glazed(front, () => glass.pillar + 0.55, sideLow, sideHigh, FRAME.round);
-    glazed(() => glass.pillar - 0.55, rear, sideLow, sideHigh, FRAME.round);
+    glazed(front, () => glass.pillar + glass.pillarHalf, sideLow, sideHigh, FRAME.round);
+    glazed(() => glass.pillar - glass.pillarHalf, rear, sideLow, sideHigh, FRAME.round);
     // The windscreen and the rear screen meet their other halves in the middle of the car: no frame there.
     glazed(() => CABIN.cowl - 0.8, () => CABIN.roofFront + 0.6, RING.topEdge + 0.55, RING.topCentre, 0, FRAME.round);
     glazed(() => CABIN.roofRear - 0.7, () => CABIN.deck + 0.8, RING.topEdge + 0.55, RING.topCentre, 0, FRAME.round);
