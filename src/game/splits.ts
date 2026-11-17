@@ -54,6 +54,22 @@ export function splitGap(best: BestRun | null, index: number, time: number): num
   return validTime(mark) && validTime(time) ? time - mark : null;
 }
 
+/**
+ * The time spent in each sector: from the start to the first checkpoint, between checkpoints, and from the
+ * last one to the finish. `splits` are the clock at each checkpoint; `finish` is the final time, if there is one.
+ */
+export function sectorTimes(splits: readonly number[], finish: number | null = null): number[] {
+  const marks = finish === null ? splits : [...splits, finish];
+  return marks.map((mark, i) => mark - (i ? marks[i - 1]! : 0));
+}
+
+/** How far a sector is off the same sector of the best run: negative is quicker. Null with nothing to compare. */
+export function sectorGap(best: BestRun | null, index: number, time: number): number | null {
+  if (!best || !validTime(time)) return null;
+  const mark = sectorTimes(best.splits, best.time)[index];
+  return validTime(mark) ? time - mark : null;
+}
+
 /** A gap as it is shown: -0.42 or +1.20. */
 export function formatGap(gap: number): string {
   const hundredths = Math.round(Math.abs(gap) * 100);

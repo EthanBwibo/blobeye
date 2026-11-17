@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rimProfile, tyreProfile } from './model';
+import { mirrorFoot, rimProfile, tyreProfile } from './model';
 import { BELT, CABIN, DOOR_HALF_WIDTH, PARTS, RING, RING_SIZE, SIDE_TOP, WHEELS, bodyHalfWidth, flareAt, lerpAt, section, sideX, surfacePoint, topHalfWidth, wrapPoint } from './model';
 
 describe('lerpAt', () => {
@@ -25,6 +25,21 @@ describe('body width', () => {
     expect(topHalfWidth(0)).toBe(CABIN.roofHalfWidth);
     expect(topHalfWidth((CABIN.cowl + CABIN.roofFront) / 2)).toBeGreaterThan(CABIN.roofHalfWidth);
     expect(topHalfWidth(CABIN.deck - 2)).toBeGreaterThan(CABIN.roofHalfWidth);
+  });
+});
+
+describe('door mirrors', () => {
+  const { mirror } = PARTS;
+  it('stand off the front door on a stalk you can see', () => {
+    const [x, y, z] = mirrorFoot();
+    // The foot is on the front door, below the belt, and right under the housing
+    expect(z).toBeLessThan(PARTS.doors[0]);
+    expect(z).toBeGreaterThan(PARTS.doors[1]);
+    expect(y).toBeLessThan(lerpAt(BELT, z));
+    expect(x).toBeCloseTo(sideX(z, y), 5);
+    // Daylight between the door and the housing's inner end, bridged by the stalk
+    expect(mirror.x - mirror.halfWidth - x).toBeGreaterThan(1.2);
+    expect(mirror.stalk).toBeGreaterThan(0.2);
   });
 });
 

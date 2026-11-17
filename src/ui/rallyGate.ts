@@ -6,6 +6,8 @@ export interface RallyGateHost {
   onStart(): void;
   /** The player has left the game. */
   onExit(): void;
+  /** Turn the engine sound down a little while the co-driver speaks, and back up after. */
+  duckEngine(on: boolean): void;
 }
 
 export interface RallyGate {
@@ -51,6 +53,7 @@ export function initRallyGate(host: RallyGateHost): RallyGate {
       startRally({
         engine: host.engine,
         toggleSound: () => document.getElementById('sound')?.click(),
+        duckEngine: host.duckEngine,
         onExit() {
           for (const el of behind) el.inert = false;
           host.onExit();

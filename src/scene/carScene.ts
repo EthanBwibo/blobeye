@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import {
   BELT,
   CABIN,
+  HEADLAMP_OUTLINE,
+  TAIL_LAMP_OUTLINE,
+  frontAngle,
   PARTS,
   PLAN,
   RING,
@@ -15,9 +18,9 @@ import {
   surfacePoint,
   rimProfile,
   tyreProfile,
+  mirrorFoot,
   wingArch,
   wrapPoint,
-  lampOutline,
   type Pair,
   type Point,
 } from '../car/model';
@@ -91,11 +94,12 @@ const circle = (r: number, z: number, n = 56) =>
  */
 function paintMaterial(): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({
-    metalness: 0.45,
-    roughness: 0.38,
-    clearcoat: 1,
-    clearcoatRoughness: 0.06,
-    envMapIntensity: 1.1,
+    // Painted metal, not plastic: a rougher base that holds its colour, and a studio turned down so it does not wash it out
+    metalness: 0.5,
+    roughness: 0.48,
+    clearcoat: 0.8,
+    clearcoatRoughness: 0.1,
+    envMapIntensity: 0.6,
     side: THREE.DoubleSide,
     polygonOffset: true,
     polygonOffsetFactor: 1,
@@ -704,13 +708,21 @@ export function createCar(): Car {
   const spans = Array.from({ length: 17 }, (_, i) => mix(-wing.halfWidth, wing.halfWidth, i / 16));
   painted(bowed(plank, spans, wingArch), true, true);
 
-  // --- Door mirrors: a housing held off the door on a stalk
+  // --- Door mirrors: a housing held well off the front door on a stalk, from a dark foot on the door skin
   const { mirror } = PARTS;
+  const [footX, footY, footZ] = mirrorFoot();
   for (const side of SIDES) {
-    painted(new THREE.SphereGeometry(1, 20, 12).scale(2.0, 1.55, 1.15).translate(side * mirror.x, mirror.y, mirror.z), true);
-    const foot = sideX(mirror.z + 0.4, mirror.y - 1.3);
-    const stalk: Pair[] = [[mirror.z + 1.0, mirror.y - 1.6], [mirror.z + 0.9, mirror.y - 0.7], [mirror.z - 0.5, mirror.y - 0.7], [mirror.z - 0.4, mirror.y - 1.6]];
-    painted(prism(stalk, side * (foot - 0.3), side * (mirror.x - 0.8)), true, true);
+    painted(new THREE.SphereGeometry(1, 20, 12).scale(mirror.halfWidth, 1.55, 1.15).translate(side * mirror.x, mirror.y, mirror.z), true);
+    // The foot: a small dark plate on the door, longer than it is tall
+    const plate: Pair[] = [[footZ + 1.3, footY - 0.55], [footZ + 1.2, footY + 0.45], [footZ - 0.7, footY + 0.6], [footZ - 0.9, footY - 0.55]];
+    add(prism(plate, side * (footX - 0.25), side * (footX + 0.3)), mat.dark, true);
+    // The stalk: a round arm from the foot out and up into the housing's inner end
+    const from = new THREE.Vector3(side * (footX + 0.2), footY, footZ + 0.2);
+    const to = new THREE.Vector3(side * (mirror.x - mirror.halfWidth * 0.55), mirror.y - 0.45, mirror.z);
+    const arm = new THREE.CylinderGeometry(mirror.stalk, mirror.stalk * 1.2, from.distanceTo(to), 14);
+    arm.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize()));
+    arm.translate((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2);
+    add(arm, mat.body, true);
     // The glass, on the face that looks back down the car
     const back = Array.from({ length: 20 }, (_, i) => {
       const a = (i / 20) * Math.PI * 2;
@@ -766,31 +778,53 @@ export function createCar(): Car {
     return corners.flatMap((c, i) => edge(c, corners[(i + 1) % 4]!));
   };
 
-  // --- Nose: teardrop headlamps (a chrome main-beam reflector and a projector, under a clear domed lens), grille, lower intake, fog covers, chin and bumper line
+  /** A shape traced in the front (end = 1) or rear (end = -1) view, laid on the car's left. Mirror it with `onSide`. */
+  const traced = (end: 1 | -1, outline: readonly Pair[]): Pair[] => outline.map(([x, y]) => [frontAngle(end, x, y), y] as const);
+  /** A rounded shape in the front or rear view, laid on the car's left: its middle, half its width and height. */
+  const spot = (end: 1 | -1, x: number, y: number, halfWidth: number, halfHeight = halfWidth, power = 2): Pair[] => {
+    // How many degrees round the corner one unit across the view is, here: the shape stays round as seen from ahead.
+    const perUnit = (frontAngle(end, x + 0.3, y) - frontAngle(end, x - 0.3, y)) / 0.6;
+    return blob(frontAngle(end, x, y), y, halfWidth * perUnit * PER_DEGREE, halfHeight, power);
+  };
+  const onSide = (outline: Pair[], side: 1 | -1): Pair[] => outline.map(([d, y]) => [side * d, y] as const);
+  /** A flat band between an outline and the same outline shrunk by `k`. */
+  const band = (outline: Pair[], k: number, place: Place, material: THREE.Material, out: number): void => {
+    const inner = shrink(outline, k);
+    add(sheet([[...outline, outline[0]!].map(([d, y]) => place(d, y, out)), [...inner, inner[0]!].map(([d, y]) => place(d, y, out))]), material);
+  };
+
+  // --- Nose: headlamps traced from the front view (a dark housing set in under a clear domed lens, a chrome bowl,
+  // a main-beam reflector, a projector and an amber reflector), grille, lower intake, fog covers, chin and bumper line
   const { headlamp, grille, intake, fogCover } = PARTS;
+  const headOutline = traced(1, HEADLAMP_OUTLINE);
+  const [main, projector] = headlamp.lamps;
+  const { reflector } = headlamp;
+  const head = {
+    main: spot(1, main[0], main[1], main[2]),
+    mainSurround: spot(1, main[0], main[1], main[2] * 1.15),
+    bulb: spot(1, main[0], main[1], main[2] * 0.28),
+    projector: spot(1, projector[0], projector[1], projector[2]),
+    projectorSurround: spot(1, projector[0], projector[1], projector[2] * 1.15),
+    projectorLens: spot(1, projector[0], projector[1], projector[2] * headlamp.projector),
+    reflector: spot(1, reflector.x, reflector.y, reflector.halfWidth, reflector.halfHeight, 3),
+  };
   for (const side of SIDES) {
-    const teardrop = lampOutline(headlamp).map(([d, y]) => [side * d, y] as const);
-    // The housing, dark, and inside it a chrome bowl the lamps sit in
-    fill(teardrop, nose, mat.dark);
-    fill(shrink(teardrop, 0.9), nose, mat.chrome, 0.36, false, -0.12);
-    const [main, projector] = headlamp.lamps;
-    for (const [angle, y, r] of [main, projector]) fill(blob(side * angle, y, r * 1.2, r * 1.2), nose, mat.dark, 0.38, false);
-    // The main beam: a deep chrome reflector with the bulb's cap in its middle
-    {
-      const [angle, y, r] = main;
-      fill(blob(side * angle, y, r, r), nose, mat.chrome, 0.42, false, -0.32);
-      fill(blob(side * angle, y, r * 0.28, r * 0.28, 2, 20), nose, mat.metal, 0.2, false, 0.25);
-    }
+    const lens = onSide(headOutline, side);
+    const at = (shape: Pair[]) => onSide(shape, side);
+    // The housing: a dark rim set slightly in under the lens's edge, and inside it a chrome bowl
+    band(lens, 0.88, nose, mat.dark, 0.2);
+    fill(shrink(lens, 0.88), nose, mat.chrome, 0.2, false, -0.14);
+    // The main beam: a dark surround, a deep chrome reflector, and the bulb's cap in its middle
+    fill(at(head.mainSurround), nose, mat.dark, 0.24, false);
+    fill(at(head.main), nose, mat.chrome, 0.3, false, -0.25);
+    fill(at(head.bulb), nose, mat.metal, 0.1, false, 0.28);
     // The projector: a shallow chrome ring round a small domed lens of dark glass
-    {
-      const [angle, y, r] = projector;
-      fill(blob(side * angle, y, r, r), nose, mat.chrome, 0.42, false, -0.15);
-      fill(blob(side * angle, y, r * headlamp.projector, r * headlamp.projector), nose, mat.projector, 0.32, true, 0.42);
-    }
-    const { reflector } = headlamp;
-    fill(blob(side * reflector.angle, headlamp.y, reflector.halfWidth, reflector.halfHeight, 3), nose, mat.gold, 0.42);
-    // The clear lens over it all, domed, so the studio's lights slide across it as the car turns
-    fill(shrink(teardrop, 0.97), nose, mat.lens, 0.56, true, 0.35);
+    fill(at(head.projectorSurround), nose, mat.dark, 0.24, false);
+    fill(at(head.projector), nose, mat.chrome, 0.3, false, -0.12);
+    fill(at(head.projectorLens), nose, mat.projector, 0.22, true, 0.4);
+    fill(at(head.reflector), nose, mat.gold, 0.28);
+    // The clear lens over it all, on the traced outline, domed so the studio's lights slide across it
+    fill(lens, nose, mat.lens, 0.62, true, 0.4);
 
     // Fog lamp cover: a round cover set in a dark recess at the corner of the bumper
     fill(blob(side * fogCover.angle, fogCover.y, fogCover.radius, fogCover.radius), nose, mat.dark);
@@ -814,26 +848,34 @@ export function createCar(): Car {
 
   // --- Tail: red lamps that wrap the corners, bumper line, number plate recess and an exhaust tip
   const { tailLamp, plate, tailpipe } = PARTS;
+  const tailOutline = traced(-1, TAIL_LAMP_OUTLINE);
+  /** The inner edge of the tail lamps, in degrees round the tail. */
+  const tailInner = Math.min(...tailOutline.map(([d]) => d));
+  const { strip } = tailLamp;
+  const rear = {
+    strip: spot(-1, strip.x, strip.y, strip.halfWidth, strip.halfHeight, 4),
+    lamps: tailLamp.lamps.map(([x, y, r]) => ({ bowl: spot(-1, x, y, r * 1.25), glow: spot(-1, x, y, r), cap: spot(-1, x, y, r * 0.35) })),
+  };
   for (const side of SIDES) {
-    const lamp = lampOutline(tailLamp).map(([d, y]) => [side * d, y] as const);
-    // The housing, a deep red
-    fill(lamp, tail, mat.tail);
-    // Each round lamp: a chrome bowl, the lit red ring, and a chrome cap in its middle
-    for (const [angle, y, r] of tailLamp.lamps) {
-      fill(blob(side * angle, y, r * 1.2, r * 1.2), tail, mat.chrome, 0.42, false, -0.25);
-      fill(blob(side * angle, y, r * 0.95, r * 0.95), tail, mat.tailGlow, 0.3, false, 0.08);
-      fill(blob(side * angle, y, r * 0.35, r * 0.35, 2, 20), tail, mat.chrome, 0.36, false, 0.12);
-      line(blob(side * angle, y, r * 0.95, r * 0.95, 2, 28).map(([d, h]) => tail(d, h, 0.44)), true);
+    const lens = onSide(tailOutline, side);
+    const at = (shape: Pair[]) => onSide(shape, side);
+    // The housing: a dark rim set in under the lens's edge, and a deep red inside it
+    band(lens, 0.9, tail, mat.dark, 0.2);
+    fill(shrink(lens, 0.9), tail, mat.tail, 0.2, false);
+    // The clear strip across the top, onto a chrome back
+    fill(at(rear.strip), tail, mat.chrome, 0.32, true, -0.1);
+    // The round lamp: a chrome bowl, the lit red ring, and a chrome cap in its middle
+    for (const lamp of rear.lamps) {
+      fill(at(lamp.bowl), tail, mat.chrome, 0.32, false, -0.2);
+      fill(at(lamp.glow), tail, mat.tailGlow, 0.26, true, 0.08);
+      fill(at(lamp.cap), tail, mat.chrome, 0.3, false, 0.12);
     }
-    // The reverse lamp between them: a clear, squarish window onto a chrome back
-    const { reverse } = tailLamp;
-    fill(blob(side * reverse.angle, tailLamp.y, reverse.halfWidth, reverse.halfHeight, 4), tail, mat.chrome, 0.4, true, -0.1);
-    // The red lens over it all, domed a little
-    fill(shrink(lamp, 0.98), tail, mat.tailLens, 0.6, true, 0.28);
+    // The red lens over it all, on the traced outline, domed a little
+    fill(lens, tail, mat.tailLens, 0.6, true, 0.3);
     // The boot lid's edge, down the inside of each lamp
-    line(Array.from({ length: 12 }, (_, i) => tail(side * (tailLamp.inner - 2), mix(21.6, 15.0, i / 11), 0.36)));
+    line(Array.from({ length: 12 }, (_, i) => tail(side * (tailInner - 2), mix(21.6, 15.0, i / 11), 0.36)));
   }
-  line(sweep(tail, -(tailLamp.inner - 2), tailLamp.inner - 2, 15.0)); // bottom of the boot lid
+  line(sweep(tail, -(tailInner - 2), tailInner - 2, 15.0)); // bottom of the boot lid
   line(sweep(tail, -68, 68, 14.3)); // the bumper, running round to each rear arch
   fill(trapezoid(plate.half, plate.top, plate.half - 1, plate.bottom), tail, mat.shade);
   line(shrink(trapezoid(plate.half, plate.top, plate.half - 1, plate.bottom), 0.82).map(([d, y]) => tail(d, y, 0.36)), true);

@@ -497,6 +497,13 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
     }
   }
   finish.add(tiles);
+  // A gate at each split: two posts and a gold board across the road, so a sector ends somewhere you can see.
+  for (const at of stage.checkpoints) {
+    const split = gate(at);
+    split.position.y = groundAt(hazards, at);
+    for (const side of [-1, 1]) post(split, side, 4.6);
+    split.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.7, reach * 2).translate(0, 4.25, 0), mat.gold));
+  }
 
   // --- The car: the same model as the drawing, at road size
   const car = createCar();

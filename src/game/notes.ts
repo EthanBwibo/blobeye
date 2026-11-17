@@ -16,10 +16,44 @@ export interface Corner {
   change: 'tightens' | 'opens' | 'long' | null;
 }
 
+/** How much care a call asks for: none, or one to three exclamation marks. */
+export type Caution = 0 | 1 | 2 | 3;
+
+/** What a call warns of, for the icon on the screen. */
+export type Sign =
+  | { kind: 'corner'; turn: Corner['turn']; grade: number; change: Corner['change']; caution: Caution }
+  | { kind: 'crest' | 'water' | 'bridge' | 'animals'; caution: Caution }
+  | { kind: 'rocks'; side: Corner['turn']; caution: Caution };
+
 export interface Note {
   /** Where the thing it warns of begins, as a distance along the road. */
   at: number;
+  /** The call as it is written down. */
   text: string;
+  /** The call as the co-driver says it. */
+  say: string;
+  sign: Sign;
+}
+
+const NUMBERS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six'] as const;
+
+/** A tight corner asks for care, more so when it tightens. */
+export function cornerCaution(grade: number, change: Corner['change']): Caution {
+  const tightens = change === 'tightens';
+  if (grade <= 1) return tightens ? 3 : 2;
+  if (grade === 2) return tightens ? 2 : 1;
+  return grade === 3 && tightens ? 1 : 0;
+}
+
+/** The note for a corner: "Left 4, tightens", said as "Left four, tightens". */
+export function cornerNote(c: Corner): Note {
+  const tail = c.change ? `, ${c.change}` : '';
+  return {
+    at: c.from,
+    text: `${c.turn} ${c.grade}${tail}`,
+    say: `${c.turn} ${NUMBERS[c.grade] ?? c.grade}${tail}`,
+    sign: { kind: 'corner', turn: c.turn, grade: c.grade, change: c.change, caution: cornerCaution(c.grade, c.change) },
+  };
 }
 
 export const NOTES = {
@@ -97,18 +131,26 @@ export function rockFields(rocks: readonly Rock[]): Rock[][] {
 
 /** Every call for a stage, in the order they come: its corners, and what lies on the road. */
 export function paceNotes(stage: Stage): Note[] {
-  const notes: Note[] = corners(stage).map((c) => ({ at: c.from, text: `${c.turn} ${c.grade}${c.change ? `, ${c.change}` : ''}` }));
+  const notes: Note[] = corners(stage).map(cornerNote);
   const { water, bridge, zebra, crests } = stage.hazards;
   const onStage = (at: number) => at > stage.startAt && at < stage.finishAt;
   for (const rocks of rockFields(stage.hazards.rocks)) {
     const lean = rocks.reduce((sum, rock) => sum + rock.across, 0);
     const at = Math.min(...rocks.map((rock) => rock.along - rock.r));
-    if (onStage(at)) notes.push({ at, text: lean > 0 ? 'Rocks on the right, keep left' : 'Rocks on the left, keep right' });
+    const right = lean > 0;
+    if (onStage(at)) {
+      notes.push({
+        at,
+        text: right ? 'Rocks on the right, keep left' : 'Rocks on the left, keep right',
+        say: right ? 'Rocks right, keep left' : 'Rocks left, keep right',
+        sign: { kind: 'rocks', side: right ? 'Right' : 'Left', caution: 2 },
+      });
+    }
   }
-  if (onStage(water.from)) notes.push({ at: water.from, text: 'Water!' });
-  if (onStage(bridge.from)) notes.push({ at: bridge.from - bridge.taper, text: 'Narrow bridge' });
-  if (zebra.count && onStage(zebra.at)) notes.push({ at: zebra.at - 4, text: 'Caution, zebra!' });
-  for (const crest of crests) if (crest.height > 0 && onStage(crest.at)) notes.push({ at: crest.at - crest.reach, text: 'Crest, keep it flat' });
+  if (onStage(water.from)) notes.push({ at: water.from, text: 'Water!', say: 'Caution, water', sign: { kind: 'water', caution: 1 } });
+  if (onStage(bridge.from)) notes.push({ at: bridge.from - bridge.taper, text: 'Narrow bridge', say: 'Narrow bridge, keep middle', sign: { kind: 'bridge', caution: 2 } });
+  if (zebra.count && onStage(zebra.at)) notes.push({ at: zebra.at - 4, text: 'Caution, zebra!', say: 'Caution, zebra', sign: { kind: 'animals', caution: 3 } });
+  for (const crest of crests) if (crest.height > 0 && onStage(crest.at)) notes.push({ at: crest.at - crest.reach, text: 'Crest, keep it flat', say: 'Over crest, keep it flat', sign: { kind: 'crest', caution: 1 } });
   return notes.sort((a, b) => a.at - b.at);
 }
 
@@ -117,9 +159,14 @@ export function paceNotes(stage: Stage): Note[] {
  * follows it if that is close too. Null on a quiet stretch.
  */
 export function callAt(notes: readonly Note[], progress: number): { now: string; then: string | null } | null {
+  const shown = shownAt(notes, progress);
+  return shown && { now: notes[shown.now]!.text, then: shown.then === null ? null : notes[shown.then]!.text };
+}
+
+/** The same as `callAt`, as places in `notes`, for drawing their icons. */
+export function shownAt(notes: readonly Pick<Note, 'at'>[], progress: number): { now: number; then: number | null } | null {
   const i = notes.findIndex((note) => progress < note.at + NOTES.hold);
-  const near = (note: Note | undefined): note is Note => note !== undefined && progress >= note.at - NOTES.lead;
-  const [next, after] = [notes[i], notes[i + 1]];
-  if (i < 0 || !near(next)) return null;
-  return { now: next.text, then: near(after) ? after.text : null };
+  const near = (note: Pick<Note, 'at'> | undefined) => note !== undefined && progress >= note.at - NOTES.lead;
+  if (i < 0 || !near(notes[i])) return null;
+  return { now: i, then: near(notes[i + 1]) ? i + 1 : null };
 }

@@ -2,8 +2,9 @@
  * The Safari stages: a time trial seen from a chase camera behind the car. This file runs the game and is
  * the only part that touches the page. The driving is in `handling.ts`, the road and the clock in
  * `stage.ts`, the three stages in `stages.ts`, what lies on the road in `hazards.ts`, the co-driver's calls
- * in `notes.ts`, the splits and medals in `splits.ts`, the ghost in `ghost.ts`, the camera and the start in
- * `chase.ts`, the touch screen in `touch.ts`, and the drawing in `world.ts`.
+ * in `notes.ts` and `codriver.ts` (with their icons in `paceIcons.ts` and voice in `voice.ts`), the splits
+ * and medals in `splits.ts`, the ghost in `ghost.ts`, the camera and the start in `chase.ts`, the rev meter
+ * in `instruments.ts`, the map in `minimap.ts`, the touch screen in `touch.ts`, and the drawing in `world.ts`.
  *
  * It is loaded on demand (see `src/ui/rallyGate.ts`), so nothing here may be imported by the main page.
  */
@@ -12,17 +13,22 @@ import type { EngineState } from '../engine/model';
 import { WHEELS } from '../car/model';
 import { createBoardHud, type BoardHud } from './boardHud';
 import { chaseFov, chaseView, countdown, newChase, stepChase, type Chase } from './chase';
+import { angleToRoad, dueCalls, joinCalls, newWrongWay, stepWrongWay, type WrongWay } from './codriver';
 import { beatsGhost, finishGhost, ghostAt, ghostText, newRecorder, parseGhost, record, type Ghost, type Recorder } from './ghost';
-import { carSpeeds, easeSteer, engineRpm, type DriveInput } from './handling';
+import { carSpeeds, easeSteer, engineRpm, gearFor, type DriveInput } from './handling';
 import { groundAt } from './hazards';
+import { kmh, needleAngle, revMeterSvg, DIAL } from './instruments';
 import { openBoard, STAGE_ID } from './leaderboard';
 import { pickLight } from './light';
-import { callAt, paceNotes, type Note } from './notes';
+import { minimapSvg } from './minimap';
+import { paceNotes, shownAt, type Note } from './notes';
+import { caption, cautionSvg, signSvg } from './paceIcons';
 import { scatter } from './scenery';
-import { MEDALS, formatGap, keepBest, medalFor, parseBestRun, splitGap, verdict, type BestRun } from './splits';
+import { MEDALS, formatGap, keepBest, medalFor, parseBestRun, sectorGap, sectorTimes, verdict, type BestRun } from './splits';
 import { formatTime, herdAt, locate, newTrial, stepTrial, type Stage, type Trial } from './stage';
 import { STAGES, buildStageOf, stageById, type StageDef } from './stages';
 import { createTouchPads, tiltSteer, type TouchPads } from './touch';
+import { createVoice } from './voice';
 import { UNIT, createWorld, type Puff, type World } from './world';
 
 export interface RallyHost {
@@ -32,6 +38,8 @@ export interface RallyHost {
   toggleSound(): void;
   /** Called when the player leaves. */
   onExit(): void;
+  /** Turn the engine down a little while the co-driver speaks. */
+  duckEngine?(on: boolean): void;
 }
 
 export interface Rally {
@@ -45,11 +53,14 @@ const KEYS = {
   /** The best run's time and splits, for each stage. Naivasha's keeps the key it had before there were others. */
   run: (stage: string) => (stage === STAGE_ID ? 'blobeye.rally.run' : `blobeye.rally.run.${stage}`),
   ghost: (stage: string) => `blobeye.rally.ghost.${stage}`,
-  /** The last stage picked, whether the ghost is shown, and whether the phone steers by tilting. */
+  /** The last stage picked, whether the ghost is shown, whether the phone steers by tilting, and whether the co-driver speaks. */
   stage: 'blobeye.rally.stage',
   ghostOn: 'blobeye.rally.ghost-on',
   tilt: 'blobeye.rally.tilt',
+  voice: 'blobeye.rally.codriver',
 } as const;
+/** How long a sector time stays up in the middle of the screen, in seconds. */
+const SECTOR_FLASH = 2.6;
 /** The ghost stays on the line this long after it finishes, then goes. */
 const GHOST_LINGER = 2;
 
@@ -144,14 +155,21 @@ export function startRally(host: RallyHost): Rally {
     'aria-label',
     touch
       ? 'Safari stage time trial. Steering pads on the left, Go and Brake on the right.'
-      : 'Safari stage time trial. Arrow keys or W A S D to drive, R to restart, G for the ghost, 1 to 3 to pick a stage, Escape to leave.',
+      : 'Safari stage time trial. Arrow keys or W A S D to drive, R to restart, C for the co-driver, G for the ghost, 1 to 3 to pick a stage, Escape to leave.',
   );
   const stageButtons = STAGES.map((def, i) => `<button type="button" class="tool" data-stage="${def.id}"><b>${def.name}</b><small>${touch ? def.blurb : `${i + 1} · ${def.blurb}`}</small></button>`).join('');
+  const sectors = stage.checkpoints.length + 1;
   root.innerHTML = `
     <div class="way"></div>
     <div class="hud clock"><span data-stage-name></span><b data-time>0:00.00</b></div>
-    <div class="hud splits" data-splits>${stage.checkpoints.map((_, i) => `<span data-split><i>Split ${i + 1}</i><u>–</u><em></em></span>`).join('')}</div>
-    <div class="hud pace" data-pace aria-live="polite" hidden><span>Co-driver</span><b data-pace-now></b><em data-pace-then></em></div>
+    <div class="hud splits" data-splits>${Array.from({ length: sectors }, (_, i) => `<span data-split><i>Sector ${i + 1}</i><u>–</u><em></em></span>`).join('')}</div>
+    <div class="pace" data-pace hidden><div class="note now" data-pace-now></div><div class="note then" data-pace-then></div></div>
+    <p class="sr" aria-live="polite" data-pace-said></p>
+    <div class="hud sector" data-sector hidden><span data-sector-name></span><b data-sector-time></b><em data-sector-gap></em></div>
+    <div class="wrongway" data-wrongway role="alert" hidden>Wrong way</div>
+    <div class="hud minimap" data-map></div>
+    <div class="hud gauges"><div class="dial">${revMeterSvg()}</div><div class="readout"><span>Gear</span><b data-gear>1</b><span>km/h</span><b data-speed>0</b></div></div>
+    <button type="button" class="hud codriver" data-codriver aria-pressed="true">Co-driver · on</button>
     <div class="side" data-side>
       <div class="tools" role="group" aria-label="Game controls">
         <button type="button" class="tool" data-tool="ghost" aria-pressed="true">Ghost</button>
@@ -162,13 +180,48 @@ export function startRally(host: RallyHost): Rally {
       </div>
     </div>
     <div class="hud call" data-call aria-live="assertive"><b data-call-big></b><strong data-verdict hidden></strong><span class="targets" data-targets hidden></span><span data-call-small></span><span class="stages" data-stages role="group" aria-label="Stage">${stageButtons}</span><small data-credit hidden>Unofficial fan project. Subaru didn't ask for this.</small></div>
-    <div class="hud keys"><span>Arrows or WASD · drive</span><span>R · restart</span><span>G · ghost</span><span>M · sound</span><span>Esc · leave</span></div>
+    <div class="hud keys"><span>Arrows or WASD · drive</span><span>R · restart</span><span>M · sound</span><span>C · co-driver</span><span>G · ghost</span><span>1–3 · stage</span><span>Esc · leave</span></div>
     <div class="turn" data-turn><b>Turn your phone sideways</b><span>The stage is drawn for landscape</span></div>`;
   root.prepend(world.canvas);
   const part = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
   const [timeEl, callEl, callBig, callSmall, credit, wayEl] = [part('[data-time]'), part('[data-call]'), part('[data-call-big]'), part('[data-call-small]'), part('[data-credit]'), part('.way')];
-  const [paceEl, paceNow, paceThen, verdictEl, targetsEl, stageName] = [part('[data-pace]'), part('[data-pace-now]'), part('[data-pace-then]'), part('[data-verdict]'), part('[data-targets]'), part('[data-stage-name]')];
-  const [side, stagesEl] = [part('[data-side]'), part('[data-stages]')];
+  const [paceEl, paceNow, paceThen, paceSaid, verdictEl, targetsEl, stageName] = [part('[data-pace]'), part('[data-pace-now]'), part('[data-pace-then]'), part('[data-pace-said]'), part('[data-verdict]'), part('[data-targets]'), part('[data-stage-name]')];
+  const [side, stagesEl, mapEl] = [part('[data-side]'), part('[data-stages]'), part('[data-map]')];
+  const [sectorEl, sectorName, sectorTime, sectorGapEl, wrongEl] = [part('[data-sector]'), part('[data-sector-name]'), part('[data-sector-time]'), part('[data-sector-gap]'), part('[data-wrongway]')];
+  const [gearEl, speedEl, codriverEl] = [part('[data-gear]'), part('[data-speed]'), part<HTMLButtonElement>('[data-codriver]')];
+  const needle = root.querySelector<SVGElement>('[data-needle]')!;
+  const revsEl = root.querySelector<SVGElement>('svg.revs')!;
+
+  /** The minimap of the stage being driven, drawn again when the stage changes. */
+  let map = minimapSvg(stage);
+  let mapCar: SVGCircleElement | null = null;
+  const drawMap = (): void => {
+    map = minimapSvg(stage);
+    mapEl.innerHTML = map.svg;
+    mapCar = mapEl.querySelector<SVGCircleElement>('[data-car]');
+  };
+  drawMap();
+
+  // --- The co-driver's voice, and the button that turns it on and off
+  const voice = createVoice(read(KEYS.voice) !== 'off');
+  const showVoice = (): void => {
+    codriverEl.textContent = voice.available ? `Co-driver · ${voice.on ? 'on' : 'off'}` : 'Co-driver · no voice here';
+    codriverEl.setAttribute('aria-pressed', String(voice.on));
+    codriverEl.disabled = !voice.available;
+  };
+  const toggleVoice = (): void => {
+    if (!voice.available) return;
+    voice.on = !voice.on;
+    write(KEYS.voice, voice.on ? 'on' : 'off');
+    if (!voice.on) voice.hush();
+    showVoice();
+  };
+  codriverEl.addEventListener('click', () => {
+    toggleVoice();
+    // The keys belong to the game, not the button.
+    root.focus();
+  });
+  showVoice();
   const splitRows = Array.from(root.querySelectorAll<HTMLElement>('[data-split]'));
   const tool = (name: string) => part<HTMLButtonElement>(`[data-tool="${name}"]`);
   let medalEls: HTMLElement[] = [];
@@ -211,8 +264,16 @@ export function startRally(host: RallyHost): Rally {
   let racing = ghost;
   let recorder: Recorder = newRecorder();
   let ghostOn = read(KEYS.ghostOn) !== 'off';
-  /** How many splits are on the screen, so the rows are only written when one is taken. */
+  /** How many sectors are on the screen, so the rows are only written when one is done. */
   let shownSplits = -1;
+  /** The next call the co-driver has not yet said, and the wrong-way warning. */
+  let nextCall = 0;
+  let wrong: WrongWay = newWrongWay();
+  /** Seconds left on the sector time in the middle of the screen. */
+  let flash = 0;
+  /** Which calls are drawn at the top, so the icons are only drawn again when they change. */
+  let shownCalls = '';
+  let ducked = false;
   const restart = (): void => {
     trial = newTrial(stage);
     trial.index = locate(stage, trial.car.x, trial.car.y, trial.index).index;
@@ -225,6 +286,11 @@ export function startRally(host: RallyHost): Rally {
     recorder = newRecorder();
     record(recorder, 0, { ...trial.car, height: trial.height });
     shownSplits = -1;
+    nextCall = 0;
+    wrong = newWrongWay();
+    flash = 0;
+    shownCalls = '';
+    voice.hush();
     // Each run gets its own time of day.
     const light = pickLight(Math.random());
     root.dataset.light = light;
@@ -260,6 +326,7 @@ export function startRally(host: RallyHost): Rally {
     ({ stage, world, notes } = current);
     root.prepend(world.canvas);
     resize();
+    drawMap();
     board.dispose();
     board = openHud();
     best = readBest();
@@ -351,7 +418,7 @@ export function startRally(host: RallyHost): Rally {
     // While a name is being typed, the letters are letters.
     if (board.takesKey(e)) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
-    const known = DRIVE_KEYS.has(e.code) || STAGE_KEYS.includes(e.code) || ['KeyR', 'KeyM', 'KeyG', 'Escape', 'Enter', 'Space'].includes(e.code);
+    const known = DRIVE_KEYS.has(e.code) || STAGE_KEYS.includes(e.code) || ['KeyR', 'KeyM', 'KeyC', 'KeyG', 'Escape', 'Enter', 'Space'].includes(e.code);
     if (!known) return;
     // The page behind uses the same keys to turn its sheets.
     e.preventDefault();
@@ -360,6 +427,7 @@ export function startRally(host: RallyHost): Rally {
     else if (e.repeat) return;
     else if (e.code === 'KeyR' || (e.code === 'Enter' && trial.phase === 'finished')) restart();
     else if (e.code === 'KeyM') host.toggleSound();
+    else if (e.code === 'KeyC') toggleVoice();
     else if (e.code === 'KeyG') toggleGhost();
     else if (STAGE_KEYS.includes(e.code)) pickStage(STAGES[STAGE_KEYS.indexOf(e.code)]!);
     else if (e.code === 'Escape') stop();
@@ -498,32 +566,102 @@ export function startRally(host: RallyHost): Rally {
     if (el.textContent !== text) el.textContent = text;
   };
 
-  /** The split rows under the clock: each time as it is taken, green if ahead of the best run and red if behind. */
+  /**
+   * The sector rows under the clock: each sector's time as it is done, green if quicker than the same
+   * sector of the best run and red if slower. The one just done also flashes up in the middle.
+   */
   const showSplits = (): void => {
-    if (shownSplits === trial.splits.length) return;
-    shownSplits = trial.splits.length;
+    const done = sectorTimes(trial.splits, trial.phase === 'finished' ? trial.time : null);
+    if (shownSplits === done.length) return;
+    const fresh = shownSplits >= 0 && done.length > shownSplits;
+    shownSplits = done.length;
     splitRows.forEach((row, i) => {
       const [time, gapEl] = [row.querySelector('u')!, row.querySelector('em')!];
-      const split = trial.splits[i];
-      const gap = split === undefined ? null : splitGap(rival, i, split);
-      time.textContent = split === undefined ? '–' : formatTime(split);
+      const sector = done[i];
+      const gap = sector === undefined ? null : sectorGap(rival, i, sector);
+      time.textContent = sector === undefined ? '–' : formatTime(sector);
       gapEl.textContent = gap === null ? '' : formatGap(gap);
-      row.classList.toggle('ahead', gap !== null && gap < 0);
-      row.classList.toggle('behind', gap !== null && gap >= 0);
+      // With no best run yet, a sector is the best so far.
+      const quicker = sector !== undefined && (gap === null || gap < 0);
+      row.classList.toggle('ahead', quicker);
+      row.classList.toggle('behind', sector !== undefined && !quicker);
+      row.classList.toggle('flash', fresh && i === done.length - 1);
     });
+    const last = done.length - 1;
+    // On the finish the end screen takes the middle; the row still flashes.
+    if (!fresh || last < 0 || trial.phase === 'finished') return;
+    const gap = sectorGap(rival, last, done[last]!);
+    setText(sectorName, `Sector ${last + 1}`);
+    setText(sectorTime, formatTime(done[last]!));
+    setText(sectorGapEl, gap === null ? 'Best so far' : formatGap(gap));
+    sectorEl.classList.toggle('ahead', gap === null || gap < 0);
+    sectorEl.classList.toggle('behind', gap !== null && gap >= 0);
+    // Restart the flash even if the last one is still up.
+    sectorEl.hidden = true;
+    void sectorEl.offsetWidth;
+    sectorEl.hidden = false;
+    flash = SECTOR_FLASH;
+  };
+
+  /** The calls at the top: the next one large, the one after it smaller beside it. */
+  const noteHtml = (note: Note): string => {
+    const words = caption(note.sign);
+    return `<div class="icons">${signSvg(note.sign)}${cautionSvg(note.sign.caution)}</div>${words ? `<span>${words}</span>` : ''}`;
+  };
+  const showCalls = (): void => {
+    const shown = trial.phase === 'running' && !wrong.shown ? shownAt(notes, trial.progress) : null;
+    const key = shown ? `${shown.now}:${shown.then}` : '';
+    if (key === shownCalls) return;
+    shownCalls = key;
+    paceEl.hidden = shown === null;
+    if (!shown) return;
+    const now = notes[shown.now]!;
+    paceNow.innerHTML = noteHtml(now);
+    paceNow.setAttribute('aria-label', now.say);
+    const then = shown.then === null ? null : notes[shown.then]!;
+    paceThen.innerHTML = then ? noteHtml(then) : '';
+    paceThen.hidden = then === null;
+  };
+
+  /** Rev meter, gear and speed in the corner, and the car on the minimap. */
+  const showInstruments = (): void => {
+    const { forward } = carSpeeds(trial.car);
+    needle.setAttribute('transform', `rotate(${needleAngle(revs).toFixed(1)} ${DIAL.cx} ${DIAL.cy})`);
+    revsEl.classList.toggle('over', revs >= 6500);
+    setText(gearEl, String(gearFor(forward)));
+    setText(speedEl, String(kmh(forward)));
+    const [mx, my] = map.project(trial.car.x, trial.car.y);
+    mapCar?.setAttribute('cx', mx.toFixed(1));
+    mapCar?.setAttribute('cy', my.toFixed(1));
+  };
+
+  /** The co-driver: say each call in time for the car's speed, and say so if the car is going the wrong way. */
+  const speak = (dt: number): void => {
+    if (trial.phase !== 'running') return;
+    const { forward } = carSpeeds(trial.car);
+    const turned = stepWrongWay(wrong, angleToRoad(stage, trial.progress, trial.car.heading), dt);
+    wrong = turned;
+    if (turned.began) {
+      voice.say('Wrong way!', true);
+      setText(paceSaid, 'Wrong way!');
+    }
+    wrongEl.hidden = !wrong.shown;
+    if (wrong.shown) return;
+    const calls = dueCalls(notes, nextCall, trial.progress, forward);
+    nextCall = calls.next;
+    if (!calls.due.length) return;
+    const line = joinCalls(calls.due);
+    voice.say(line);
+    setText(paceSaid, line);
   };
 
   const showReadouts = (): void => {
     timeEl.textContent = formatTime(trial.time);
     wayEl.style.width = `${(Math.min(1, Math.max(0, (trial.progress - stage.startAt) / (stage.finishAt - stage.startAt))) * 100).toFixed(1)}%`;
     showSplits();
-
-    // The co-driver: what is coming, and what follows it.
-    const pace = trial.phase === 'running' ? callAt(notes, trial.progress) : null;
-    paceEl.hidden = pace === null;
-    setText(paceNow, pace?.now ?? '');
-    setText(paceThen, pace?.then ? `then ${pace.then}` : '');
-    paceThen.hidden = !pace?.then;
+    showCalls();
+    showInstruments();
+    if (trial.phase !== 'running') wrongEl.hidden = true;
 
     const { call, held: waiting } = countdown(waited);
     const finished = trial.phase === 'finished';
@@ -605,6 +743,12 @@ export function startRally(host: RallyHost): Rally {
         }
       }
     }
+    speak(dt);
+    flash = Math.max(0, flash - dt);
+    if (!flash) sectorEl.hidden = true;
+    // The engine goes quieter while the co-driver talks.
+    const talking = voice.speaking;
+    if (talking !== ducked) host.duckEngine?.((ducked = talking));
     // The exhaust synth follows these.
     revs += (engineRpm(carSpeeds(trial.car).forward) - revs) * (1 - Math.exp(-dt * 12));
     host.engine.rpm = revs;
@@ -624,6 +768,8 @@ export function startRally(host: RallyHost): Rally {
     window.removeEventListener('deviceorientation', onTilt);
     scheme.removeEventListener('change', repaint);
     host.engine.throttle = false;
+    voice.dispose();
+    if (ducked) host.duckEngine?.(false);
     if (document.fullscreenElement) {
       (screen.orientation as ScreenOrientation & { unlock?: () => void }).unlock?.();
       document.exitFullscreen().catch(() => undefined);

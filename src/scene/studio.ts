@@ -25,7 +25,7 @@ export function lightStudio(renderer: THREE.WebGLRenderer, scene: THREE.Scene): 
   });
 
   // Until the studio arrives (or if it never does) a sky-and-ground light keeps the paint readable.
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x404858, 0.9));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x404858, 0.55));
 
   new HDRLoader().load(
     STUDIO_HDRI,

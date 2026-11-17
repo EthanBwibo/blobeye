@@ -85,6 +85,74 @@
 }
 #rally .call small{font-size:10px; color:var(--ink-soft)}
 
+/* The co-driver's calls (src/game/paceIcons.ts): the next one large at the top centre, the one after smaller beside it */
+#rally .pace{position:absolute; left:50%; top:16px; transform:translateX(-50%); display:flex; align-items:flex-start; gap:12px; pointer-events:none}
+#rally .pace .note{display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 14px 8px; color:var(--ink);
+  background:color-mix(in srgb,var(--paper-2) 92%,transparent); border:1.5px solid var(--ink);
+  font-family:var(--f-mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase}
+#rally .pace .icons{display:flex; align-items:flex-start; gap:6px}
+#rally .pace .sign{width:112px; height:112px; display:block}
+#rally .pace .caution{width:44px; height:40px; display:block; color:var(--fire)}
+#rally .pace .then{padding:6px 10px 6px; color:var(--ink-soft)}
+#rally .pace .then .sign{width:56px; height:56px}
+#rally .pace .then .caution{width:24px; height:22px}
+#rally .pace svg text{fill:currentColor; font-family:var(--f-display); font-style:italic; font-weight:800}
+#rally .pace .grade{font-size:34px}
+#rally .sr{position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap}
+
+/* a sector just done, flashed under the calls: green if quicker than the best run's, red if slower */
+#rally .sector{left:50%; top:196px; transform:translateX(-50%); align-items:center; text-align:center; padding:8px 20px; animation:rally-sector .5s ease-out}
+#rally .sector b{font-size:34px}
+#rally .sector em{font-style:normal; font-weight:500}
+#rally .sector.ahead{border-color:var(--ahead)}
+#rally .sector.ahead em{color:var(--ahead)}
+#rally .sector.behind{border-color:var(--fire)}
+#rally .sector.behind em{color:var(--fire)}
+#rally .splits .flash{animation:rally-row 2.6s ease-out}
+#rally .splits .ahead.flash{--flash:var(--ahead)}
+#rally .splits .behind.flash{--flash:var(--fire)}
+@keyframes rally-sector{from{transform:translateX(-50%) scale(1.25); background:color-mix(in srgb,var(--paper-2) 40%,transparent)}}
+@keyframes rally-row{0%,40%{background:color-mix(in srgb,var(--flash) 28%,transparent)}100%{background:transparent}}
+
+/* WRONG WAY, across the middle of the screen */
+#rally .wrongway{position:absolute; left:50%; top:42%; transform:translate(-50%,-50%); padding:4px 34px; color:var(--paper);
+  background:var(--fire); border:3px solid var(--ink); font-family:var(--f-display); font-style:italic; font-weight:800;
+  font-size:clamp(56px,9vw,120px); line-height:1.05; letter-spacing:.03em; text-transform:uppercase; white-space:nowrap;
+  animation:rally-wrong .55s ease-in-out infinite alternate}
+@keyframes rally-wrong{to{opacity:.55}}
+
+/* the minimap, bottom left above the keys: the stage, its sector gates, and the car */
+#rally .minimap{left:20px; bottom:62px; padding:6px}
+#rally .minimap svg{width:170px; height:170px; display:block}
+#rally .minimap .road{fill:none; stroke:var(--ink); stroke-width:3; stroke-linejoin:round; stroke-linecap:round}
+#rally .minimap .gate{stroke:var(--gold); stroke-width:3.5}
+#rally .minimap .start{stroke:var(--ink-soft); stroke-width:3}
+#rally .minimap .finish{stroke:var(--ink); stroke-width:5; stroke-dasharray:3 3}
+#rally .minimap [data-car]{fill:var(--fire); stroke:var(--paper); stroke-width:2}
+
+/* the instruments, bottom right: rev meter with its redline, gear and speed */
+#rally .gauges{right:20px; bottom:20px; flex-direction:row; align-items:center; gap:12px; padding:6px 14px 6px 6px}
+#rally .gauges .revs{width:150px; height:130px; display:block}
+#rally .revs .dial{fill:none; stroke:var(--ink); stroke-width:2.5}
+#rally .revs .red{fill:none; stroke:var(--fire); stroke-width:6}
+#rally .revs .ticks path{stroke:var(--ink); stroke-width:2}
+#rally .revs .ticks text{fill:var(--ink-soft); font-family:var(--f-mono); font-size:9px; text-anchor:middle}
+#rally .revs .needle{stroke:var(--ink); stroke-width:3; stroke-linecap:round}
+#rally .revs.over .needle{stroke:var(--fire)}
+#rally .revs .hub{fill:var(--ink)}
+#rally .gauges .readout{display:grid; grid-template-columns:auto; gap:0; min-width:4.5em}
+#rally .gauges .readout b{font-size:44px}
+
+/* the co-driver switch, above the instruments */
+#rally .codriver{right:20px; bottom:170px; cursor:pointer; font:inherit; font-family:var(--f-mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase}
+#rally .codriver[aria-pressed="false"]{color:var(--ink-soft)}
+#rally .codriver:focus-visible{outline:2px solid var(--gold); outline-offset:2px}
+
+@media (prefers-reduced-motion:reduce){
+  #rally .sector,#rally .splits .flash,#rally .wrongway{animation:none}
+
+}
+
 /* Phones and tablets (src/game/touch.ts): steering pads bottom left, Go and Brake bottom right, and
    everything else smaller, so the road shows between them. */
 #rally.touch{touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none}
@@ -114,8 +182,22 @@
 #rally.touch .splits{left:max(10px,env(safe-area-inset-left)); top:60px; min-width:130px}
 #rally.touch .side{right:max(10px,env(safe-area-inset-right)); top:10px; max-width:46%}
 #rally.touch .tool{min-height:36px; font-size:10px; padding:4px 9px}
-#rally.touch .pace{top:10px; padding:6px 12px; max-width:calc(100% - 460px); min-width:150px}
-#rally.touch .pace b{font-size:22px}
+/* the calls smaller, the sector time under them, the map under the splits, and the instruments between the pads */
+#rally.touch .pace{top:10px; gap:6px}
+#rally.touch .pace .note{padding:5px 8px 4px; font-size:9px}
+#rally.touch .pace .sign{width:62px; height:62px}
+#rally.touch .pace .caution{width:26px; height:24px}
+#rally.touch .pace .then .sign{width:34px; height:34px}
+#rally.touch .pace .then .caution{width:16px; height:15px}
+#rally.touch .sector{top:104px; padding:5px 12px}
+#rally.touch .sector b{font-size:22px}
+#rally.touch .wrongway{font-size:clamp(36px,8vw,72px); padding:2px 20px}
+#rally.touch .minimap{left:max(10px,env(safe-area-inset-left)); top:138px; bottom:auto; padding:4px}
+#rally.touch .minimap svg{width:84px; height:84px}
+#rally.touch .gauges{left:50%; right:auto; bottom:max(8px,env(safe-area-inset-bottom)); transform:translateX(-50%); gap:6px; padding:3px 8px 3px 3px}
+#rally.touch .gauges .revs{width:84px; height:73px}
+#rally.touch .gauges .readout b{font-size:20px}
+#rally.touch .codriver{left:50%; right:auto; bottom:calc(max(8px,env(safe-area-inset-bottom)) + 92px); transform:translateX(-50%); padding:5px 9px; font-size:9px}
 /* The top ten waits for the finish, when the pads are not needed. */
 #rally.touch:not(.done) .board{display:none}
 #rally.touch .board{width:200px; max-height:calc(100vh - 70px); overflow:auto}
@@ -135,4 +217,5 @@
   }
   #rally.touch .turn b{font-family:var(--f-display); font-style:italic; font-weight:800; font-size:30px; letter-spacing:.01em; text-transform:none}
   #rally.touch .turn::before{content:""; width:46px; height:78px; border:2.5px solid var(--ink); border-radius:8px; transform:rotate(-90deg); margin-bottom:18px}
-}
+/* Readouts let a thumb through to the pad under them. */
+#rally.touch .hud:not(.call):not(.codriver):not(.board){pointer-events:none}
