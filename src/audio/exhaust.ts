@@ -11,6 +11,8 @@ export class ExhaustSynth {
   private ctx: AudioContext | null = null;
   private lowpass: BiquadFilterNode | null = null;
   private gain: GainNode | null = null;
+  /** Between the volume and the speakers: turned down while the co-driver speaks. */
+  private duckGain: GainNode | null = null;
 
   constructor(private readonly state: EngineState) {}
 
@@ -26,6 +28,12 @@ export class ExhaustSynth {
     if (on) void ctx.resume();
     gain.gain.setTargetAtTime(on ? 0.5 : 0, ctx.currentTime, on ? 0.08 : 0.06);
     return true;
+  }
+
+  /** Turn the engine down a little while something else needs to be heard, such as the co-driver. */
+  duck(on: boolean): void {
+    if (!this.ctx || !this.duckGain) return;
+    this.duckGain.gain.setTargetAtTime(on ? 0.55 : 1, this.ctx.currentTime, on ? 0.06 : 0.25);
   }
 
   /** Open the filter up as revs rise. Call once per frame. */
@@ -105,7 +113,10 @@ export class ExhaustSynth {
 
     node.connect(lowpass);
     lowpass.connect(gain);
-    gain.connect(ctx.destination);
+    const duckGain = ctx.createGain();
+    gain.connect(duckGain);
+    duckGain.connect(ctx.destination);
+    this.duckGain = duckGain;
     this.ctx = ctx;
     this.lowpass = lowpass;
     this.gain = gain;

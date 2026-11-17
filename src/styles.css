@@ -8,7 +8,7 @@
   --text:#10203F;
   --gold:#A87B1E;       /* wheel gold, the one accent */
   --fire:#DA4E14;       /* combustion and exhaust pulses */
-  --body-blue:#1D4FB8;  /* the car's paint */
+  --body-blue:#0B2E9E;  /* the car's paint: a deep, saturated WR blue */
   --body-dark:#0A1B3D;  /* glass, tyres, openings */
   --body-line:#061737;  /* edge lines on the paint, darker than --ink so they show on blue */
   --wheel-gold:#C79A2B; /* the car's wheels */
@@ -56,7 +56,7 @@
   :root:not([data-theme="light"]){
     --paper:#0A2760; --paper-2:#0E2F70; --ink:#D5E3FF; --ink-soft:#8FA9DB; --text:#EAF0FF;
     --gold:#E6BC5C; --fire:#FF8B4A; --grid:rgba(213,227,255,.07); --grid-major:rgba(213,227,255,.13);
-    --body-blue:#2B63D6; --body-dark:#050E22; --body-line:#D5E3FF; --wheel-gold:#E6BC5C;
+    --body-blue:#1238B0; --body-dark:#050E22; --body-line:#D5E3FF; --wheel-gold:#E6BC5C;
     --body-light:#7FA8FF; --body-shade:#17409A; --tyre:#141C2E; --metal:#93A3C0;
     --tail-red:#D8342C; --tail-glow:#FF8A70; --ground-shade:#00040F;
     --glass:#0B2236; --glass-shine:#86A9D6;
@@ -70,7 +70,7 @@
 :root[data-theme="dark"]{
   --paper:#0A2760; --paper-2:#0E2F70; --ink:#D5E3FF; --ink-soft:#8FA9DB; --text:#EAF0FF;
   --gold:#E6BC5C; --fire:#FF8B4A; --grid:rgba(213,227,255,.07); --grid-major:rgba(213,227,255,.13);
-  --body-blue:#2B63D6; --body-dark:#050E22; --body-line:#D5E3FF; --wheel-gold:#E6BC5C;
+  --body-blue:#1238B0; --body-dark:#050E22; --body-line:#D5E3FF; --wheel-gold:#E6BC5C;
     --body-light:#7FA8FF; --body-shade:#17409A; --tyre:#141C2E; --metal:#93A3C0;
     --tail-red:#D8342C; --tail-glow:#FF8A70; --ground-shade:#00040F;
     --glass:#0B2236; --glass-shine:#86A9D6;

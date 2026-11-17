@@ -93,11 +93,12 @@ const circle = (r: number, z: number, n = 56) =>
  */
 function paintMaterial(): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({
-    metalness: 0.45,
-    roughness: 0.38,
-    clearcoat: 1,
-    clearcoatRoughness: 0.06,
-    envMapIntensity: 1.1,
+    // Painted metal, not plastic: a rougher base that holds its colour, and a studio turned down so it does not wash it out
+    metalness: 0.5,
+    roughness: 0.48,
+    clearcoat: 0.8,
+    clearcoatRoughness: 0.1,
+    envMapIntensity: 0.6,
     side: THREE.DoubleSide,
     polygonOffset: true,
     polygonOffsetFactor: 1,

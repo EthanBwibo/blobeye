@@ -81,6 +81,7 @@ const rally = initRallyGate({
     playing = true;
     scroll.lock();
   },
+  duckEngine: (on) => synth.duck(on),
   onExit() {
     playing = false;
     scene?.park();
