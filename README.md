@@ -13,7 +13,7 @@ The first chapter is the flat-four engine: turn it, rev it, and hear why it rumb
 - **The firing order plays live.** Cylinders flash 1-3-2-4 and exhaust pulses travel down the pipes to the collector.
 - **Hold to rev.** The exhaust note is generated in the browser from the same model that drives the drawing.
 - **The rally years.** A timeline of Subaru's world rally titles and Safari Rally wins, every entry sourced in `docs/FACTS.md`. Laptop only.
-- **Drive it.** On the Safari sheet the car drives off into a top-down gravel time trial: arrow keys or WASD, about a minute, best time kept on your device. Needs a keyboard.
+- **Drive it.** On the Safari sheet the car drives off into a gravel time trial in 3D, seen from behind the car: arrow keys or WASD, about a minute, best time kept on your device. Needs a keyboard.
 - **The numbers.** The 2004 car's Japanese and United States specs side by side. Laptop only.
 - **Unequal or equal headers.** Switch them and watch the pulses bunch up or even out, and hear the beat change.
 

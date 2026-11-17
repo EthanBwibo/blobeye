@@ -25,6 +25,13 @@
   --scrub:#9A9F58;      /* tufts beside the road */
   --acacia:#5C7838;     /* thorn trees */
   --dust:#E3AC84;
+  --sky:#E9A765;        /* the Safari stage in 3D: the sky overhead */
+  --haze:#F5DDB6;       /* the sky at the horizon, and the fog */
+  --sun:#FFF3D6;
+  --hills:#9C7F66;      /* distant hills, before the haze pales them */
+  --rock:#8F8170;
+  --bark:#5A4130;       /* thorn tree trunks */
+  --stage-shade:#4A2E1C; /* the car's shadow on the earth */
   --grid:rgba(12,58,138,.09);
   --grid-major:rgba(12,58,138,.16);
   --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
@@ -40,6 +47,7 @@
     --body-light:#7FA8FF; --body-shade:#17409A; --tyre:#141C2E; --metal:#93A3C0;
     --tail-red:#D8342C; --tail-glow:#FF8A70; --ground-shade:#00040F;
     --savannah:#3A3423; --murram:#7C3B22; --murram-edge:#552615; --scrub:#4D5631; --acacia:#2E4322; --dust:#B98562;
+    --sky:#1B1930; --haze:#5B4A3A; --sun:#F1E2C0; --hills:#2B241F; --rock:#4A443B; --bark:#2A1C14; --stage-shade:#0B0805;
     color-scheme:dark;
   }
 }
@@ -50,6 +58,7 @@
     --body-light:#7FA8FF; --body-shade:#17409A; --tyre:#141C2E; --metal:#93A3C0;
     --tail-red:#D8342C; --tail-glow:#FF8A70; --ground-shade:#00040F;
     --savannah:#3A3423; --murram:#7C3B22; --murram-edge:#552615; --scrub:#4D5631; --acacia:#2E4322; --dust:#B98562;
+    --sky:#1B1930; --haze:#5B4A3A; --sun:#F1E2C0; --hills:#2B241F; --rock:#4A443B; --bark:#2A1C14; --stage-shade:#0B0805;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
