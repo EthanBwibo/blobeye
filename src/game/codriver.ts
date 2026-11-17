@@ -41,7 +41,7 @@ export function dueCalls(notes: readonly Note[], next: number, progress: number,
 
 /** Calls that come together are said in one breath. */
 export function joinCalls(due: readonly Pick<Note, 'say'>[]): string {
-  return due.map((note) => note.say).join(', into ');
+  return due.map((note, i) => (i ? note.say.charAt(0).toLowerCase() + note.say.slice(1) : note.say)).join(', into ');
 }
 
 /** The voice to use: an English one, British first, then the other Commonwealth ones, then American. */
