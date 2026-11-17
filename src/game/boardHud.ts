@@ -6,8 +6,8 @@ import { BOARD_SIZE, DEFAULT_NAME, NAME_LENGTH, addEntry, cleanName, openBoard, 
 import { formatTime } from './stage';
 
 export interface BoardHud {
-  /** A run has finished in this many seconds: ask for a name to put to it. */
-  finished(time: number): void;
+  /** A run has finished in this many seconds: ask for a name to put to it. Its replay, if any, goes with it to the shared board. */
+  finished(time: number, replay?: string | null): void;
   /** The line under the finishing time: where the run placed and which keys do what. */
   note(): string;
   /** Offer a key press to the name box first. True if the box is being typed in, and the game should leave the key alone. */
@@ -65,6 +65,7 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
   let entries: Entry[] = [];
   /** The time waiting for a name, the row the last run became, and whether that row is still on its way. */
   let waiting: number | null = null;
+  let waitingReplay: string | undefined;
   let mine: Entry | null = null;
   let sending = false;
   let lastName = '';
@@ -118,6 +119,7 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
     e.preventDefault();
     if (waiting === null) return;
     const entry = { name: cleanName(input.value), time: waiting };
+    const replay = waitingReplay;
     lastName = entry.name;
     mine = entry;
     sending = true;
@@ -128,17 +130,18 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
       show(rows);
     };
     // The board falls back to this device by itself. If even that fails, the time still shows for this visit.
-    board.add(entry).then(settle, () => settle(addEntry(entries, entry)));
+    board.add(replay === undefined ? entry : { ...entry, replay }).then(settle, () => settle(addEntry(entries, entry)));
   });
 
   return {
-    finished(time) {
+    finished(time, replay) {
       const rounded = Number(time.toFixed(3));
       mine = null;
       sending = false;
       draw();
       if (!(rounded > 0)) return;
       waiting = rounded;
+      waitingReplay = replay ?? undefined;
       form.hidden = false;
       input.value = lastName;
       input.focus();

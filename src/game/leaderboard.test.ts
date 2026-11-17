@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { packReplay } from './ghost';
 import { BOARD_SIZE, DEFAULT_NAME, NAME_LENGTH, STAGE_ID, addEntry, boardKey, cleanName, deviceBoard, parseBoard, placeOf, rowsToEntries, sharedBoard, type Entry } from './leaderboard';
+
+/** A replay of a run of `time` seconds, straight along the x axis. */
+const replayOf = (time: number): string => {
+  const frames: number[] = [];
+  for (let i = 0; i * 0.1 <= time + 1e-9; i++) frames.push(i * 3, 0, 0, 0);
+  return packReplay({ frames })!;
+};
 
 const full: Entry[] = Array.from({ length: BOARD_SIZE }, (_, i) => ({ name: `D${i}`, time: 60 + i }));
 
@@ -248,6 +256,45 @@ describe('sharedBoard', () => {
     expect(JSON.parse(String(post.init.body))).toMatchObject({ stage: 'hells-gate' });
     const read = table.calls.find((c) => (c.init.method ?? 'GET') === 'GET')!;
     expect(new URLSearchParams(read.url.split('?')[1]).get('stage')).toBe('eq.hells-gate');
+  });
+
+  it('sends the replay with the time, but never one the table would refuse, and never reads it for the top ten', async () => {
+    const table = fakeTable();
+    const board = sharedBoard(URL, KEY, deviceBoard(null), table.send);
+    const fits = replayOf(63.21);
+    await board.add({ name: 'Ethan', time: 63.21, replay: fits });
+    await board.add({ name: 'Ethan', time: 64, replay: replayOf(50) });
+    const posts = table.calls.filter((c) => c.init.method === 'POST').map((c) => JSON.parse(String(c.init.body)));
+    expect(posts[0]).toEqual({ name: 'Ethan', time_ms: 63210, stage: STAGE_ID, replay: fits });
+    // Ten seconds short: the time still goes, without it.
+    expect(posts[1]).toEqual({ name: 'Ethan', time_ms: 64000, stage: STAGE_ID });
+    for (const read of table.calls.filter((c) => (c.init.method ?? 'GET') === 'GET')) {
+      expect(new URLSearchParams(read.url.split('?')[1]).get('select')).toBe('name,time_ms');
+    }
+  });
+
+  it('fetches the stage record: the fastest run that has a replay', async () => {
+    const urls: string[] = [];
+    const answer = (rows: unknown, ok = true) => async (url: string) => {
+      urls.push(url);
+      return { ok, status: ok ? 200 : 503, json: async () => rows };
+    };
+    const replay = replayOf(61.5);
+    const board = sharedBoard(URL, KEY, deviceBoard(null), answer([{ name: 'Tommi', time_ms: 61500, replay }]), 'soysambu');
+    expect(await board.record!()).toEqual({ name: 'Tommi', time: 61.5, replay });
+    const query = new URLSearchParams(urls[0]!.split('?')[1]);
+    expect(query.get('select')).toBe('name,time_ms,replay');
+    expect(query.get('stage')).toBe('eq.soysambu');
+    expect(query.get('replay')).toBe('not.is.null');
+    expect(query.get('order')).toBe('time_ms.asc,created_at.asc');
+    expect(query.get('limit')).toBe('1');
+    // None yet, or one whose length does not fit its time, or a time the table would not hold: no record.
+    expect(await sharedBoard(URL, KEY, deviceBoard(null), answer([])).record!()).toBeNull();
+    expect(await sharedBoard(URL, KEY, deviceBoard(null), answer([{ name: 'Tommi', time_ms: 70000, replay }])).record!()).toBeNull();
+    expect(await sharedBoard(URL, KEY, deviceBoard(null), answer([{ name: 'Tommi', time_ms: 5000, replay: replayOf(5) }])).record!()).toBeNull();
+    await expect(sharedBoard(URL, KEY, deviceBoard(null), answer([], false)).record!()).rejects.toThrow('503');
+    // The board on the device has no record to race.
+    expect(deviceBoard(null).record).toBeUndefined();
   });
 });
 

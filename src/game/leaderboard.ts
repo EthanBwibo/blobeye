@@ -5,6 +5,8 @@
  * which the shared board falls back to. `openBoard`, at the bottom of this file, picks between them.
  */
 
+import { replayFits } from './ghost';
+
 export interface Entry {
   name: string;
   /** Seconds. */
@@ -75,8 +77,19 @@ export interface Board {
   readonly scope: string;
   /** The top ten, fastest first. */
   top(): Promise<Entry[]>;
-  /** Record a time, and get the top ten as it now stands. */
-  add(entry: Entry): Promise<Entry[]>;
+  /** Record a time, and get the top ten as it now stands. A shared board also sends the run's replay, if it has one. */
+  add(entry: Run): Promise<Entry[]>;
+  /**
+   * The fastest run on the board that has a replay, with its replay: the stage record, for the ghost. Only a
+   * shared board has one. Read only when asked, as replays are large. Null if there is none yet; it throws
+   * if the board cannot be reached.
+   */
+  record?(): Promise<Run | null>;
+}
+
+/** A time on the board with the run's replay, packed by `packReplay` in `ghost.ts`. */
+export interface Run extends Entry {
+  replay?: string;
 }
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
@@ -132,7 +145,8 @@ type Send = (url: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | '
 
 /**
  * A board shared by everyone, kept in a Supabase table and reached over its REST API with the public key.
- * The table is `rally_times`: `name`, `time_ms`, `stage`, `created_at`. The key may read and insert, nothing else.
+ * The table is `rally_times`: `name`, `time_ms`, `stage`, `created_at`, and `replay`, the run packed for the
+ * ghost (empty for older times). The key may read and insert, nothing else. The top ten never reads `replay`.
  *
  * Each stage's times are kept apart by the table's `stage` column: this board reads and writes `stage`'s.
  * Every time also goes on `device`, the board on this device, so it is never lost. Whenever the shared
@@ -172,10 +186,12 @@ export function sharedBoard(url: string, key: string, device: Board, send: Send 
       try {
         const time_ms = Math.round(kept.time * 1000);
         if (!(time_ms >= SHARED_TIMES.least * 1000 && time_ms <= SHARED_TIMES.most * 1000)) throw new Error('Not a time the shared board takes');
+        // A replay the table would refuse would cost the time as well: it is left off instead.
+        const replay = entry.replay !== undefined && replayFits(entry.replay, time_ms) ? { replay: entry.replay } : {};
         const answer = await send(table, {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-          body: JSON.stringify({ name: kept.name, time_ms, stage }),
+          body: JSON.stringify({ name: kept.name, time_ms, stage, ...replay }),
           ...waiting(),
         });
         if (!answer.ok) throw new Error(`The shared board answered ${answer.status}`);
@@ -187,6 +203,17 @@ export function sharedBoard(url: string, key: string, device: Board, send: Send 
         reached = false;
         return own;
       }
+    },
+    async record() {
+      const query = `select=name,time_ms,replay&stage=eq.${encodeURIComponent(stage)}&replay=not.is.null&order=time_ms.asc,created_at.asc&limit=1`;
+      const answer = await send(`${table}?${query}`, { headers, ...waiting() });
+      if (!answer.ok) throw new Error(`The shared board answered ${answer.status}`);
+      const rows = (await answer.json()) as unknown;
+      const row = Array.isArray(rows) ? (rows[0] as { replay?: unknown } | undefined) : undefined;
+      const [entry] = rowsToEntries(row ? [row] : []);
+      // It comes from a stranger: only a possible time with a replay that fits it.
+      if (!entry || typeof row!.replay !== 'string' || !replayFits(row!.replay, Math.round(entry.time * 1000))) return null;
+      return { ...entry, replay: row!.replay };
     },
   };
 }

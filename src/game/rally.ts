@@ -14,11 +14,11 @@ import { WHEELS } from '../car/model';
 import { createBoardHud, type BoardHud } from './boardHud';
 import { chaseFov, chaseView, countdown, newChase, stepChase, type Chase } from './chase';
 import { angleToRoad, dueCalls, joinCalls, newWrongWay, stepWrongWay, type WrongWay } from './codriver';
-import { beatsGhost, finishGhost, ghostAt, ghostText, newRecorder, parseGhost, record, type Ghost, type Recorder } from './ghost';
+import { beatsGhost, finishGhost, ghostAt, ghostText, newRecorder, packReplay, parseGhost, record, unpackReplay, type Ghost, type Recorder } from './ghost';
 import { carSpeeds, easeSteer, engineRpm, gearFor, type DriveInput } from './handling';
 import { groundAt } from './hazards';
 import { kmh, needleAngle, revMeterSvg, DIAL } from './instruments';
-import { openBoard, STAGE_ID } from './leaderboard';
+import { openBoard, STAGE_ID, type Board } from './leaderboard';
 import { pickLight } from './light';
 import { minimapSvg } from './minimap';
 import { paceNotes, shownAt, type Note } from './notes';
@@ -53,9 +53,10 @@ const KEYS = {
   /** The best run's time and splits, for each stage. Naivasha's keeps the key it had before there were others. */
   run: (stage: string) => (stage === STAGE_ID ? 'blobeye.rally.run' : `blobeye.rally.run.${stage}`),
   ghost: (stage: string) => `blobeye.rally.ghost.${stage}`,
-  /** The last stage picked, whether the ghost is shown, whether the phone steers by tilting, and whether the co-driver speaks. */
+  /** The last stage picked, which ghost is raced, whether the phone steers by tilting, and whether the co-driver speaks. */
   stage: 'blobeye.rally.stage',
-  ghostOn: 'blobeye.rally.ghost-on',
+  /** 'off', 'best' or 'record'. It was 'on' or 'off' before there was a record to race, and 'on' reads as 'best'. */
+  ghostMode: 'blobeye.rally.ghost-on',
   tilt: 'blobeye.rally.tilt',
   voice: 'blobeye.rally.codriver',
 } as const;
@@ -63,6 +64,11 @@ const KEYS = {
 const SECTOR_FLASH = 2.6;
 /** The ghost stays on the line this long after it finishes, then goes. */
 const GHOST_LINGER = 2;
+
+/** Which ghost is raced: none, the best run on this device, or the stage record on the shared board. G goes round them in this order. */
+type GhostMode = 'off' | 'best' | 'record';
+const GHOST_MODES: readonly GhostMode[] = ['off', 'best', 'record'];
+const readGhostMode = (stored: string | null): GhostMode => (stored === 'off' || stored === 'record' ? stored : 'best');
 
 /** A phone or a tablet: a touch screen and no mouse. It gets the touch pads, and a lighter drawing. */
 const touchScreen = (): boolean => matchMedia('(hover: none) and (pointer: coarse)').matches;
@@ -244,7 +250,8 @@ export function startRally(host: RallyHost): Rally {
   let bestEl: HTMLElement = targetsEl;
 
   // The top ten for the stage, and the name box on the finish panel. When the box closes the keys come back to the game.
-  const openHud = (): BoardHud => createBoardHud(side, callEl, () => root.focus(), openBoard(current.def.id), touch);
+  let shared: Board = openBoard(current.def.id);
+  const openHud = (): BoardHud => createBoardHud(side, callEl, () => root.focus(), shared, touch);
   let board = openHud();
 
   // The colours are read from the game's own screen, which carries the time of day.
@@ -279,7 +286,16 @@ export function startRally(host: RallyHost): Rally {
   let ghost = readGhost();
   let racing = ghost;
   let recorder: Recorder = newRecorder();
-  let ghostOn = read(KEYS.ghostOn) !== 'off';
+  let ghostMode = readGhostMode(read(KEYS.ghostMode));
+  /**
+   * The stage record as a ghost: the fastest run on the shared board that has a replay. Its replay is only
+   * fetched while that ghost is picked, and again at each start, as the record may have fallen since.
+   */
+  let stageRecord: { ghost: Ghost; name: string } | null = null;
+  let recordState: 'idle' | 'loading' | 'ready' | 'none' | 'away' = 'idle';
+  /** Counts the fetches, so an answer that comes back after another stage is picked is ignored. */
+  let recordAsk = 0;
+  const pickRacing = (): Ghost | null => (ghostMode === 'best' ? ghost : ghostMode === 'record' ? (stageRecord?.ghost ?? null) : null);
   /** How many sectors are on the screen, so the rows are only written when one is done. */
   let shownSplits = -1;
   /** The next call the co-driver has not yet said, and the wrong-way warning. */
@@ -298,7 +314,8 @@ export function startRally(host: RallyHost): Rally {
     waited = steer = dive = lean = tilt = 0;
     dust.length = 0;
     rival = best;
-    racing = ghost;
+    racing = pickRacing();
+    if (ghostMode === 'record') fetchRecord();
     recorder = newRecorder();
     record(recorder, 0, { ...trial.car, height: trial.height });
     shownSplits = -1;
@@ -345,9 +362,12 @@ export function startRally(host: RallyHost): Rally {
     resize();
     drawMap();
     board.dispose();
+    shared = openBoard(current.def.id);
     board = openHud();
     best = readBest();
     ghost = readGhost();
+    stageRecord = null;
+    recordState = 'idle';
     labelStage();
     restart();
     root.focus();
@@ -357,16 +377,70 @@ export function startRally(host: RallyHost): Rally {
     if (id) pickStage(stageById(id));
   });
 
-  // --- The ghost on or off, and the phone's tilt
+  // --- Which ghost, and the phone's tilt
+  /** What the ghost button says: which ghost, and for the record, whose run it is or why there is none. */
+  const ghostLabel = (): string => {
+    if (ghostMode === 'off') return 'Ghost off';
+    if (ghostMode === 'best') return ghost ? `Ghost · my best ${formatTime(ghost.time)}` : 'Ghost · my best (none yet)';
+    if (recordState === 'ready' && stageRecord) return `Ghost · ${stageRecord.name} ${formatTime(stageRecord.ghost.time)}`;
+    if (recordState === 'none') return 'Ghost · no record replay yet';
+    if (recordState === 'away') return 'Ghost · record out of reach';
+    return 'Ghost · loading record';
+  };
   const showTools = (): void => {
-    tool('ghost').setAttribute('aria-pressed', String(ghostOn));
-    tool('ghost').textContent = ghostOn ? 'Ghost on' : 'Ghost off';
+    const button = tool('ghost');
+    button.setAttribute('aria-pressed', String(ghostMode !== 'off'));
+    // A driver's name is text from a stranger: never markup.
+    button.textContent = ghostLabel();
+    button.title = 'Ghost: off, my best on this device, or the stage record. G to change.';
     tool('tilt').setAttribute('aria-pressed', String(tiltOn));
     tool('tilt').textContent = tiltOn ? 'Tilt on' : 'Tilt off';
   };
+  /** The road's height under a place, following the road from the start: the replay keeps no heights of its own. */
+  const groundUnder = (): ((x: number, y: number) => number) => {
+    const start = newTrial(stage).car;
+    let near = locate(stage, start.x, start.y, 0).index;
+    return (x, y) => {
+      const at = locate(stage, x, y, near);
+      near = at.index;
+      return groundAt(stage.hazards, at.along);
+    };
+  };
+  /** Fetch the stage record's replay. Only called while the record is the ghost picked. */
+  function fetchRecord(): void {
+    const ask = ++recordAsk;
+    const id = current.def.id;
+    if (!shared.record) {
+      recordState = 'away';
+      showTools();
+      return;
+    }
+    if (!stageRecord) recordState = 'loading';
+    showTools();
+    shared.record().then(
+      (run) => {
+        if (ask !== recordAsk || id !== current.def.id) return;
+        const ghostOf = run?.replay ? unpackReplay(run.replay, id, run.time, groundUnder()) : null;
+        stageRecord = run && ghostOf ? { ghost: ghostOf, name: run.name } : null;
+        recordState = stageRecord ? 'ready' : 'none';
+        // A new record only takes the road before the clock starts: never in the middle of a run.
+        if (ghostMode === 'record' && trial.phase === 'ready') racing = pickRacing();
+        showTools();
+      },
+      (error: unknown) => {
+        if (ask !== recordAsk || id !== current.def.id) return;
+        console.warn('Could not fetch the stage record:', error);
+        // A record already fetched is still good to race.
+        if (!stageRecord) recordState = 'away';
+        showTools();
+      },
+    );
+  }
   const toggleGhost = (): void => {
-    ghostOn = !ghostOn;
-    write(KEYS.ghostOn, ghostOn ? 'on' : 'off');
+    ghostMode = GHOST_MODES[(GHOST_MODES.indexOf(ghostMode) + 1) % GHOST_MODES.length]!;
+    write(KEYS.ghostMode, ghostMode);
+    racing = pickRacing();
+    if (ghostMode === 'record') fetchRecord();
     showTools();
   };
 
@@ -575,7 +649,7 @@ export function startRally(host: RallyHost): Rally {
    * Where the ghost is now: on the run's clock, gone a little after it finishes. Once the player is over the
    * line the clock stops, and a ghost stood still on the road would only be in the way, so it goes too.
    */
-  const ghostNow = () => (ghostOn && racing && trial.phase !== 'finished' && trial.time <= racing.time + GHOST_LINGER ? ghostAt(racing, trial.time) : null);
+  const ghostNow = () => (ghostMode !== 'off' && racing && trial.phase !== 'finished' && trial.time <= racing.time + GHOST_LINGER ? ghostAt(racing, trial.time) : null);
 
   const draw = (): void => {
     const { forward } = carSpeeds(trial.car);
@@ -769,15 +843,17 @@ export function startRally(host: RallyHost): Rally {
       feel(now / 1000);
       if (was === 'running') record(recorder, trial.time, { ...trial.car, height: trial.height });
       if (was === 'running' && trial.phase === 'finished') {
-        board.finished(trial.time);
+        const run = finishGhost(recorder, current.def.id, trial.time);
+        // The run goes to the shared board with its replay, so it can be raced if it becomes the record.
+        board.finished(trial.time, run ? packReplay(run) : null);
         const kept = keepBest(best, { time: trial.time, splits: trial.splits });
         if (kept && kept !== best) write(KEYS.run(current.def.id), JSON.stringify(kept));
         best = kept;
         // The quickest run on this device becomes the ghost for the next.
-        const run = finishGhost(recorder, current.def.id, trial.time);
         if (run && beatsGhost(ghost, run.time)) {
           ghost = run;
           write(KEYS.ghost(current.def.id), ghostText(run));
+          showTools();
         }
       }
     }

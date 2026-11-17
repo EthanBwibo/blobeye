@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GHOST_STEP, beatsGhost, finishGhost, ghostAt, ghostText, momentsIn, newRecorder, parseGhost, record, type Ghost } from './ghost';
+import { GHOST_STEP, REPLAY_SLACK, beatsGhost, finishGhost, ghostAt, ghostText, momentsIn, newRecorder, packReplay, parseGhost, record, replayFits, unpackReplay, type Ghost } from './ghost';
 import { buildStage, newTrial, poseAt, stepTrial } from './stage';
 
 const DT = 1 / 120;
@@ -120,5 +120,73 @@ describe('the best run as a ghost', () => {
       expect(parseGhost(bad, 'naivasha')).toBeNull();
     }
     expect(GHOST_STEP).toBe(0.1);
+  });
+});
+
+describe('a replay for the shared board', () => {
+  /** A real run down Naivasha, recorded as the game records it. */
+  const drive = (seconds: number): Ghost => {
+    const stage = buildStage();
+    const trial = newTrial(stage);
+    const recorder = newRecorder();
+    record(recorder, 0, { ...trial.car, height: trial.height });
+    while (trial.time < seconds) {
+      const aim = poseAt(stage, trial.progress + 15);
+      const off = Math.atan2(aim.y - trial.car.y, aim.x - trial.car.x) - trial.car.heading;
+      stepTrial(stage, trial, { throttle: 1, brake: 0, steer: Math.max(-1, Math.min(1, Math.atan2(Math.sin(off), Math.cos(off)) * 3)) }, DT);
+      record(recorder, trial.time, { ...trial.car, height: trial.height });
+    }
+    return finishGhost(recorder, 'naivasha', trial.time)!;
+  };
+  const flat = () => 0;
+
+  it('packs place and heading every tenth into six letters a moment, and reads back to within rounding', () => {
+    const run = drive(20);
+    const text = packReplay(run)!;
+    expect(text).toMatch(/^1[A-Za-z0-9_-]+$/);
+    expect(text.length).toBe(9 + 6 * momentsIn(run));
+    // About three and a half kilobytes a minute.
+    expect(text.length / run.time).toBeLessThan(62);
+    const back = unpackReplay(text, 'naivasha', run.time, flat)!;
+    expect(momentsIn(back)).toBe(momentsIn(run));
+    for (let i = 0; i < momentsIn(run); i++) {
+      const [a, b] = [ghostAt(run, i * GHOST_STEP)!, ghostAt(back, i * GHOST_STEP)!];
+      // Each place is rounded on its own, so the error never grows along the run.
+      expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThanOrEqual(0.0708);
+      expect(Math.abs(Math.atan2(Math.sin(a.heading - b.heading), Math.cos(a.heading - b.heading)))).toBeLessThan(0.001);
+    }
+  });
+
+  it('puts the car on the ground it is given, as a replay keeps no heights', () => {
+    const run = drive(3);
+    const back = unpackReplay(packReplay(run)!, 'naivasha', run.time, (x) => x / 100)!;
+    const seen = ghostAt(back, 2)!;
+    expect(seen.height).toBeCloseTo(seen.x / 100, 2);
+  });
+
+  it('turns away a replay whose length does not fit its time', () => {
+    const run = drive(20);
+    const text = packReplay(run)!;
+    const ms = Math.round(run.time * 1000);
+    expect(replayFits(text, ms)).toBe(true);
+    expect(replayFits(text, ms + 100 * REPLAY_SLACK)).toBe(true);
+    expect(replayFits(text, ms + 100 * (REPLAY_SLACK + 1))).toBe(false);
+    expect(replayFits(text, ms - 100 * (REPLAY_SLACK + 1))).toBe(false);
+    expect(unpackReplay(text, 'naivasha', run.time + 1, flat)).toBeNull();
+    expect(unpackReplay(text, 'naivasha', run.time - 1, flat)).toBeNull();
+    // Half a moment, another version, or something else altogether.
+    expect(replayFits(text.slice(0, -3), ms)).toBe(false);
+    expect(replayFits('2' + text.slice(1), ms)).toBe(false);
+    expect(replayFits(text.slice(0, -6) + '<scrip', ms)).toBe(false);
+    expect(replayFits('', ms)).toBe(false);
+  });
+
+  it('cannot pack a move too long for its letters, or a run with nothing in it', () => {
+    expect(packReplay({ frames: [0, 0, 0, 0, 300, 0, 0, 0] })).toBeNull();
+    expect(packReplay({ frames: [0, 0, 0, 0] })).toBeNull();
+    // Headings any number of turns round come back between -π and π.
+    const back = unpackReplay(packReplay({ frames: [0, 0, 7, 0, 1, 0, -7, 0] })!, 'naivasha', 0.1, flat)!;
+    expect(back.frames[2]).toBeCloseTo(7 - Math.PI * 2, 2);
+    expect(back.frames[6]).toBeCloseTo(-7 + Math.PI * 2, 2);
   });
 });
