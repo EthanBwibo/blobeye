@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { BOARD_SIZE, DEFAULT_NAME, NAME_LENGTH, STAGE_ID, addEntry, boardKey, cleanName, deviceBoard, parseBoard, placeOf, rowsToEntries, sharedBoard, type Entry } from './leaderboard';
 
 const full: Entry[] = Array.from({ length: BOARD_SIZE }, (_, i) => ({ name: `D${i}`, time: 60 + i }));
@@ -138,6 +138,15 @@ describe('sharedBoard', () => {
   const URL = 'https://example.supabase.co';
   const KEY = 'sb_publishable_test';
 
+  /** A failed send is logged with console.error: kept out of the test output, and checked where it is expected. */
+  let logged: MockInstance<typeof console.error>;
+  beforeEach(() => {
+    logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    logged.mockRestore();
+  });
+
   /** A stand-in for the table behind its REST API: it keeps rows, and can be switched off or made to refuse. */
   function fakeTable(start: { name: string; time_ms: number }[] = []) {
     const rows = start.slice();
@@ -187,6 +196,7 @@ describe('sharedBoard', () => {
     // The device keeps it as well, so it is never lost.
     expect(await device.top()).toEqual([{ name: 'Ethan 3', time: 63.2104 }]);
     expect(board.scope).toBe('everyone');
+    expect(logged).not.toHaveBeenCalled();
   });
 
   it('falls back to the device\'s own times when the request fails', async () => {
@@ -199,6 +209,8 @@ describe('sharedBoard', () => {
     expect(board.scope).toBe('this device');
     expect(await board.add({ name: 'Ethan', time: 64 })).toEqual([{ name: 'Ethan', time: 64 }, { name: 'Earlier', time: 70 }]);
     expect(board.scope).toBe('this device');
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(logged.mock.calls[0]![1]).toBeInstanceOf(TypeError);
     expect(table.rows).toHaveLength(1);
     // When the board can be reached again, it is the shared one again.
     table.state.down = false;
@@ -212,6 +224,7 @@ describe('sharedBoard', () => {
     table.state.status = 401;
     expect(await board.add({ name: 'Ethan', time: 64 })).toEqual([{ name: 'Ethan', time: 64 }]);
     expect(board.scope).toBe('this device');
+    expect(String(logged.mock.calls[0]![1])).toContain('401');
     expect(await board.top()).toEqual([{ name: 'Ethan', time: 64 }]);
     const odd = sharedBoard(URL, KEY, deviceBoard(null), async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('not json'); } }));
     expect(await odd.top()).toEqual([]);
@@ -223,6 +236,7 @@ describe('sharedBoard', () => {
     const board = sharedBoard(URL, KEY, deviceBoard(null), table.send);
     for (const time of [12, 601]) await board.add({ name: 'Ethan', time });
     expect(table.calls.some((c) => c.init.method === 'POST')).toBe(false);
+    expect(logged).toHaveBeenCalledTimes(2);
     expect(await deviceBoard(null).top()).toEqual([]);
     expect(board.scope).toBe('this device');
   });

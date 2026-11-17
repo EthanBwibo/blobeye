@@ -29,6 +29,9 @@
 #rally .stages .tool small{font-size:10px; opacity:.8}
 /* the top ten, and the name box on the finish panel (src/game/boardHud.ts) */
 #rally .board{width:230px; gap:6px}
+#rally .board .heading{display:flex; justify-content:space-between; align-items:baseline; gap:8px}
+#rally .board .heading small{font-size:.75em; color:var(--ink-soft); white-space:nowrap}
+#rally .board .heading small.online{color:var(--gold)}
 #rally .board ol{list-style:none; margin:0; padding:0; display:grid; gap:3px; font-variant-numeric:tabular-nums}
 #rally .board li{display:grid; grid-template-columns:1.6em 1fr auto; gap:8px}
 #rally .board li i{font-style:normal; color:var(--ink-soft)}

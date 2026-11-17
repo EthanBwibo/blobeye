@@ -182,7 +182,8 @@ export function sharedBoard(url: string, key: string, device: Board, send: Send 
         const entries = await read();
         reached = true;
         return entries;
-      } catch {
+      } catch (error) {
+        console.error('Could not send the time to the shared board:', error);
         reached = false;
         return own;
       }
@@ -191,8 +192,15 @@ export function sharedBoard(url: string, key: string, device: Board, send: Send 
 }
 
 /**
- * The board the game uses for a stage: the shared one when the project's details are set (`VITE_SUPABASE_URL` and
- * `VITE_SUPABASE_KEY` in `.env`, see `.env.example`), and the one on this device otherwise.
+ * The live project, used when `VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY` are not set (the deployed site
+ * has none). Both are public: the key is the publishable one, and the table allows reading and inserting only.
+ */
+const FALLBACK_SUPABASE_URL = 'https://eyiycddbwzoduzscibwg.supabase.co';
+const FALLBACK_SUPABASE_KEY = 'sb_publishable_nWfrq9HCgmA0dbgFqmzBBQ_8JPTTUSI';
+
+/**
+ * The board the game uses for a stage: the shared one, at the project named by `VITE_SUPABASE_URL` and
+ * `VITE_SUPABASE_KEY` in `.env` (see `.env.example`) or else the live project above.
  */
 export function openBoard(stage: string = STAGE_ID): Board {
   let store: Store | null = null;
@@ -202,7 +210,7 @@ export function openBoard(stage: string = STAGE_ID): Board {
     /* storage is switched off */
   }
   const device = deviceBoard(store, stage);
-  const url = import.meta.env.VITE_SUPABASE_URL;
-  const key = import.meta.env.VITE_SUPABASE_KEY;
-  return url && key ? sharedBoard(url, key, device, undefined, stage) : device;
+  const url = import.meta.env.VITE_SUPABASE_URL || FALLBACK_SUPABASE_URL;
+  const key = import.meta.env.VITE_SUPABASE_KEY || FALLBACK_SUPABASE_KEY;
+  return sharedBoard(url, key, device, undefined, stage);
 }
