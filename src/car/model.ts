@@ -154,12 +154,16 @@ export const PARTS = {
    * small lens as a share of its lamp's radius, and the amber reflector at the outer end.
    */
   headlamp: {
-    lamps: [[14.6, 15.4, 1.3], [11.86, 14.29, 1.16]],
+    lamps: [[14.75, 15.5, 1.52], [11.55, 14.45, 1.34]],
     projector: 0.6,
-    reflector: { x: 16.45, y: 14.2, halfWidth: 0.3, halfHeight: 0.75 },
+    reflector: { x: 16.85, y: 14.2, halfWidth: 0.22, halfHeight: 0.7 },
   },
   grille: { top: 15.5, bottom: 13.0, topHalf: 17, bottomHalf: 14 },
-  intake: { top: 9.3, bottom: 6.5, topHalf: 27, bottomHalf: 23 },
+  /**
+   * The central intake in the front bumper, in degrees round the nose and in height, filled with a diamond mesh:
+   * each diamond `cell` wide (degrees) and tall, the wires kept a `margin` inside the opening.
+   */
+  intake: { top: 9.3, bottom: 6.5, topHalf: 27, bottomHalf: 23, mesh: { cell: { width: 2.6, height: 0.7 }, margin: { across: 0.6, up: 0.18 } } },
   fogCover: { angle: 43, y: 8.4, radius: 1.9 },
   /**
    * The tail lamps' insides, in the rear view like `TAIL_LAMP_OUTLINE`: the round lamp low on the inner side as
@@ -178,10 +182,12 @@ export const PARTS = {
   handles: [[-3.0, -6.4], [-18.2, -21.6]],
   handleHeight: [18.5, 19.7],
   /**
-   * The door mirrors: the middle of the housing, which is 2 out from its middle to its inner edge. Each is held off the
-   * front door on a stalk of `stalk` radius, from a foot `foot` below the belt line.
+   * The door mirrors: the middle of the housing, which is `halfWidth` out from its middle to its inner edge. The
+   * housing is a wedge seen from above: `depth` is how far its nose reaches forward of the glass at its inner and
+   * outer ends, and `height` half its height there. Each is held off the front door on a short arm of `stalk`
+   * radius, from a foot `foot` below the belt line.
    */
-  mirror: { x: 22.3, y: 22.4, z: 13.2, halfWidth: 2.0, stalk: 0.32, foot: 0.55 },
+  mirror: { x: 21.7, y: 22.4, z: 13.2, halfWidth: 2.3, depth: [1.0, 2.3], height: [1.25, 1.6], stalk: 0.34, foot: 0.55 },
 } as const;
 
 /** How much higher the wing's plank is at `x` across the car than at its ends: a shallow bow, highest in the middle. */

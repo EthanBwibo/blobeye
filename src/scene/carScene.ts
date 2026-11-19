@@ -24,10 +24,7 @@ import {
   type Pair,
   type Point,
 } from '../car/model';
-import { PLATES, pickPlate } from '../car/plates';
-
-/** The word on the plates: picked once for each load of the page, so the drawing and the game agree. */
-const PLATE_WORD = pickPlate(Math.random());
+import { PLATES, PLATE_WORD } from '../car/plates';
 
 /** A number plate as a picture: a flat colour, a thin border and the word. Drawn again whenever the colours change. */
 function plateFace(): { texture: THREE.CanvasTexture; paint(ground: string, ink: string): void } {
@@ -93,7 +90,7 @@ const circle = (r: number, z: number, n = 56) =>
  * studio around it (see `lightStudio`), so the reflections slide over the body as it turns.
  */
 function paintMaterial(): THREE.MeshPhysicalMaterial {
-  return new THREE.MeshPhysicalMaterial({
+  const material = new THREE.MeshPhysicalMaterial({
     // Painted metal, not plastic: a rougher base that holds its colour, and a studio turned down so it does not wash it out
     metalness: 0.5,
     roughness: 0.48,
@@ -105,7 +102,30 @@ function paintMaterial(): THREE.MeshPhysicalMaterial {
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
   });
+  // The rear bumper, below the bumper line and behind the rear arches, faces back and down into the studio's
+  // brightest softbox, and under the clearcoat it flared white. It gets a satin finish instead: the clearcoat
+  // and the shine fade out over a couple of units, so there is no edge to see.
+  const { below, behind } = SATIN_BUMPER;
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vCarPlace;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCarPlace = transformed;');
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vCarPlace;').replace(
+      '#include <lights_physical_fragment>',
+      `#include <lights_physical_fragment>
+      float satin = (1.0 - smoothstep(${(behind - 2).toFixed(1)}, ${behind.toFixed(1)}, vCarPlace.z)) * (1.0 - smoothstep(${below.toFixed(1)}, ${(below + 1).toFixed(1)}, vCarPlace.y));
+      #ifdef USE_CLEARCOAT
+        material.clearcoat *= 1.0 - 0.9 * satin;
+      #endif
+      material.roughness = mix(material.roughness, 0.82, satin);`,
+    );
+  };
+  material.customProgramCacheKey = () => 'paint-satin-bumper';
+  return material;
 }
+
+/** Where the paint turns satin: the rear bumper, below `below` (just under the bumper line) and behind `behind`. */
+const SATIN_BUMPER = { below: 13.8, behind: -40 } as const;
 
 /**
  * The windows: tinted glass with a soft band of light that drifts slowly across it. `time` is in seconds;
@@ -387,6 +407,8 @@ export function createCar(): Car {
     tailLens: glassy(0.5),
     tail: flat(),
     tailGlow: flat(),
+    /** The wire mesh across the intake in the front bumper. */
+    mesh: new THREE.LineBasicMaterial(),
     shadow: shadowMaterial(),
   };
   const plates = { front: plateFace(), rear: plateFace() };
@@ -708,29 +730,65 @@ export function createCar(): Car {
   const spans = Array.from({ length: 17 }, (_, i) => mix(-wing.halfWidth, wing.halfWidth, i / 16));
   painted(bowed(plank, spans, wingArch), true, true);
 
-  // --- Door mirrors: a housing held well off the front door on a stalk, from a dark foot on the door skin
+  // --- Door mirrors: a wedge-shaped housing on a short arm, from a dark foot on the door skin. Seen from above
+  // the housing is a wedge: shallow where the arm meets it, deepening to its rounded outer end, with the glass on
+  // its flat back face and its nose rounded off into the wind.
   const { mirror } = PARTS;
   const [footX, footY, footZ] = mirrorFoot();
+  /** The housing's cross-section at a share `t` of the way out: its depth forward of the glass, and half its height. */
+  const housingAt = (t: number): { depth: number; half: number } => {
+    // The outer end rounds off over its last fifth, so the wedge does not end in a cut face.
+    const round = t > 0.8 ? Math.sqrt(Math.max(0.04, 1 - ((t - 0.8) / 0.2) ** 2)) : 1;
+    return { depth: mix(mirror.depth[0], mirror.depth[1], t) * round, half: mix(mirror.height[0], mirror.height[1], t) * (0.55 + 0.45 * round) };
+  };
   for (const side of SIDES) {
-    painted(new THREE.SphereGeometry(1, 20, 12).scale(mirror.halfWidth, 1.55, 1.15).translate(side * mirror.x, mirror.y, mirror.z), true);
+    const inner = mirror.x - mirror.halfWidth;
+    const back = mirror.z - mirror.depth[1] * 0.4;
+    const xs = Array.from({ length: 11 }, (_, i) => i / 10);
+    const around = 14;
+    /** One ring of the housing: the glass edge straight up the back, and the nose a squared-off half-ellipse forward of it. */
+    const ring = (t: number): THREE.Vector3[] => {
+      const { depth, half } = housingAt(t);
+      const x = side * mix(inner, mirror.x + mirror.halfWidth, t);
+      return Array.from({ length: around + 1 }, (_, k) => {
+        const a = -Math.PI / 2 + (k / around) * Math.PI;
+        const c = Math.cos(a);
+        return new THREE.Vector3(x, mirror.y + half * Math.sin(a), back + depth * Math.sign(c) * Math.abs(c) ** 0.7);
+      });
+    };
+    const rings = xs.map(ring);
+    const points: THREE.Vector3[] = [];
+    for (let i = 0; i < rings.length - 1; i++) {
+      const [r0, r1] = [rings[i]!, rings[i + 1]!];
+      // round the nose, then straight down the back face from its top to its bottom, closing the ring
+      const loop = (r: THREE.Vector3[]) => [...r, r[0]!];
+      const [l0, l1] = [loop(r0), loop(r1)];
+      for (let k = 0; k < l0.length - 1; k++) points.push(l0[k]!, l0[k + 1]!, l1[k + 1]!, l0[k]!, l1[k + 1]!, l1[k]!);
+    }
+    for (const r of [rings[0]!, rings[rings.length - 1]!]) {
+      const middle = r.reduce((m, p) => m.add(p), new THREE.Vector3()).divideScalar(r.length);
+      for (let k = 0; k < r.length; k++) points.push(middle, r[k]!, r[(k + 1) % r.length]!);
+    }
+    const housing = new THREE.BufferGeometry().setFromPoints(points);
+    housing.computeVertexNormals();
+    painted(housing, true, true);
+    // The glass, on the flat face that looks back down the car, a little inside its edge
+    const glass = xs.slice(1, -1).map((t) => {
+      const { half } = housingAt(t);
+      const x = side * mix(inner, mirror.x + mirror.halfWidth, t);
+      return [new THREE.Vector3(x, mirror.y - half * 0.82, back - 0.06), new THREE.Vector3(x, mirror.y + half * 0.82, back - 0.06)];
+    });
+    add(sheet(glass), mat.dark);
     // The foot: a small dark plate on the door, longer than it is tall
     const plate: Pair[] = [[footZ + 1.3, footY - 0.55], [footZ + 1.2, footY + 0.45], [footZ - 0.7, footY + 0.6], [footZ - 0.9, footY - 0.55]];
     add(prism(plate, side * (footX - 0.25), side * (footX + 0.3)), mat.dark, true);
-    // The stalk: a round arm from the foot out and up into the housing's inner end
+    // The arm: short and round, from the foot out and up into the housing's inner end
     const from = new THREE.Vector3(side * (footX + 0.2), footY, footZ + 0.2);
-    const to = new THREE.Vector3(side * (mirror.x - mirror.halfWidth * 0.55), mirror.y - 0.45, mirror.z);
+    const to = new THREE.Vector3(side * (inner + 0.35), mirror.y - housingAt(0).half * 0.35, back + housingAt(0).depth * 0.45);
     const arm = new THREE.CylinderGeometry(mirror.stalk, mirror.stalk * 1.2, from.distanceTo(to), 14);
     arm.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize()));
     arm.translate((from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2);
     add(arm, mat.body, true);
-    // The glass, on the face that looks back down the car
-    const back = Array.from({ length: 20 }, (_, i) => {
-      const a = (i / 20) * Math.PI * 2;
-      const x = Math.cos(a) * 1.55;
-      const y = Math.sin(a) * 1.15;
-      return new THREE.Vector3(side * mirror.x + x, mirror.y + y, mirror.z - 1.15 * Math.sqrt(Math.max(0, 1 - (x / 2.0) ** 2 - (y / 1.55) ** 2)) - 0.06);
-    });
-    add(new THREE.BufferGeometry().setFromPoints(back.flatMap((p, i) => [new THREE.Vector3(side * mirror.x, mirror.y, mirror.z - 1.2), p, back[(i + 1) % back.length]!])), mat.dark);
   }
 
   // --- Shapes laid on the nose and tail. They are drawn in (angle, height) so they wrap round the corners.
@@ -834,8 +892,24 @@ export function createCar(): Car {
   const grilleMid = (grille.top + grille.bottom) / 2;
   fill(trapezoid(grille.topHalf - 2.2, grilleMid + 0.22, grille.topHalf - 2.8, grilleMid - 0.22), nose, mat.paint, 0.4, false);
   fill(trapezoid(intake.topHalf, intake.top, intake.bottomHalf, intake.bottom), nose, mat.dark);
-  const intakeMid = (intake.top + intake.bottom) / 2;
-  fill(trapezoid(intake.topHalf - 2.5, intakeMid + 0.16, intake.topHalf - 3, intakeMid - 0.16), nose, mat.shade, 0.4, false);
+  // The intake is filled with a diamond mesh: two sets of slanting lines, cut to the opening less a small margin
+  {
+    const { cell, margin } = intake.mesh;
+    const halfAt = (y: number) => mix(intake.bottomHalf, intake.topHalf, (y - intake.bottom) / (intake.top - intake.bottom)) - margin.across;
+    const inside = (d: number, y: number) => y > intake.bottom + margin.up && y < intake.top - margin.up && Math.abs(d) < halfAt(y);
+    const slope = cell.height / cell.width;
+    const wires: THREE.Vector3[] = [];
+    for (const lean of [1, -1]) {
+      for (let c = intake.bottom - slope * intake.topHalf; c < intake.top + slope * intake.topHalf; c += cell.height) {
+        // Walk along the wire in small steps, keeping the pieces inside the opening
+        for (let d = -intake.topHalf; d < intake.topHalf; d += 0.5) {
+          const [y0, y1] = [c + lean * slope * d, c + lean * slope * (d + 0.5)];
+          if (inside(d, y0) && inside(d + 0.5, y1)) wires.push(nose(d, y0, 0.36), nose(d + 0.5, y1, 0.36));
+        }
+      }
+    }
+    car.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(wires), mat.mesh));
+  }
   // The seam between the bumper and the wings, running back to each front arch
   line(sweep(nose, -69, 69, 12.3));
   // Chin: a lip round the bottom of the bumper
@@ -920,6 +994,7 @@ export function createCar(): Car {
       fill(mat.tail.color, '--tail-red', 1, 0.55),
       fill(mat.tailLens.color, '--tail-red'),
       fill(mat.tailGlow.color, '--tail-glow'),
+      fill(mat.mesh.color, '--body-shade'),
       edge(mat.line.color),
       edge(mat.hull.color),
     ];
