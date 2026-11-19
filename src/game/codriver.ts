@@ -2,33 +2,51 @@
  * The spoken co-driver and the wrong-way warning: when to say each call, which voice to say it in, and
  * when the car is facing back down the road. Pure functions; the speaking itself is in `voice.ts`.
  */
-import { NOTES, type Note } from './notes';
+import type { Note } from './notes';
 import { poseAt, type Stage } from './stage';
 
 export const CODRIVER = {
   /** A call is said this many seconds before the car reaches what it warns of, at the speed it is going. */
-  leadSeconds: 3.2,
+  leadSeconds: 2.5,
   /** However slow the car, never closer than this many metres; however fast, never further. */
-  nearest: 35,
-  farthest: 150,
+  nearest: 30,
+  farthest: 220,
+  /** A call that would start with the car less than this many seconds from what it warns of is too late to say. */
+  latest: 0.6,
+  /** The voice's start delay assumed until one has been measured, and the most it is ever taken to be, in seconds. */
+  delay: 0.3,
+  maxDelay: 1.5,
 } as const;
 
-/** How far ahead of a note it is said, in metres, at a road speed in metres per second. */
-export function sayFrom(speed: number): number {
-  return Math.min(CODRIVER.farthest, Math.max(CODRIVER.nearest, Math.abs(speed) * CODRIVER.leadSeconds));
+/**
+ * How far ahead of a note it is said, in metres, at a road speed in metres per second: the lead time plus
+ * the voice's measured start delay, so the words begin `leadSeconds` before the corner, not later.
+ */
+export function sayFrom(speed: number, delay: number = CODRIVER.delay): number {
+  const ahead = CODRIVER.leadSeconds + Math.min(CODRIVER.maxDelay, Math.max(0, delay));
+  return Math.min(CODRIVER.farthest, Math.max(CODRIVER.nearest, Math.abs(speed) * ahead));
 }
 
 /**
- * The calls due now. `next` is the first call not yet said. A call the car has already gone past is
- * dropped unsaid: late is worse than nothing. Returns the calls to say, in order, and the new `next`.
+ * Whether a call for something at `at` is too late to be any use if it starts `delay` seconds from now:
+ * the car would be at it, or nearly, before the first word.
  */
-export function dueCalls(notes: readonly Note[], next: number, progress: number, speed: number): { due: Note[]; next: number } {
+export function isStale(at: number, progress: number, speed: number, delay: number = 0): boolean {
+  const left = at - progress;
+  return left <= 0 || left < Math.abs(speed) * (Math.max(0, delay) + CODRIVER.latest);
+}
+
+/**
+ * The calls due now. `next` is the first call not yet said. A call that would be stale by the time the
+ * voice starts it is dropped unsaid: late is worse than nothing. Returns the calls to say, in order, and the new `next`.
+ */
+export function dueCalls(notes: readonly Note[], next: number, progress: number, speed: number, delay: number = CODRIVER.delay): { due: Note[]; next: number } {
   const due: Note[] = [];
   let i = next;
-  const reach = sayFrom(speed);
+  const reach = sayFrom(speed, delay);
   while (i < notes.length) {
     const note = notes[i]!;
-    if (progress > note.at + NOTES.hold) {
+    if (isStale(note.at, progress, speed, delay)) {
       i++;
       continue;
     }
@@ -39,9 +57,15 @@ export function dueCalls(notes: readonly Note[], next: number, progress: number,
   return { due, next: i };
 }
 
+/** The voice's start delay after one more measurement, in seconds: a running average, within limits. */
+export function measureDelay(was: number, measured: number): number {
+  const seen = Math.min(CODRIVER.maxDelay, Math.max(0, measured));
+  return was + (seen - was) * 0.3;
+}
+
 /** Calls that come together are said in one breath. */
 export function joinCalls(due: readonly Pick<Note, 'say'>[]): string {
-  return due.map((note, i) => (i ? note.say.charAt(0).toLowerCase() + note.say.slice(1) : note.say)).join(', into ');
+  return due.map((note, i) => (i ? note.say.charAt(0).toLowerCase() + note.say.slice(1) : note.say)).join(' into ');
 }
 
 /** The voice to use: an English one, British first, then the other Commonwealth ones, then American. */

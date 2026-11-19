@@ -13,7 +13,7 @@ import type { EngineState } from '../engine/model';
 import { WHEELS } from '../car/model';
 import { createBoardHud, type BoardHud } from './boardHud';
 import { chaseFov, chaseView, countdown, newChase, stepChase, type Chase } from './chase';
-import { angleToRoad, dueCalls, joinCalls, newWrongWay, stepWrongWay, wantsLights, type WrongWay } from './codriver';
+import { angleToRoad, dueCalls, isStale, joinCalls, newWrongWay, stepWrongWay, wantsLights, type WrongWay } from './codriver';
 import { beatsGhost, finishGhost, ghostAt, ghostText, newRecorder, packReplay, parseGhost, record, unpackReplay, type Ghost, type Recorder } from './ghost';
 import { carSpeeds, easeSteer, engineRpm, gearFor, type DriveInput } from './handling';
 import { groundAt } from './hazards';
@@ -22,7 +22,7 @@ import { boardKey, openBoard, STAGE_ID, type Board } from './leaderboard';
 import { SKIES, lampStrength, pickLight, type Light } from './light';
 import { minimapSvg } from './minimap';
 import { paceNotes, shownAt, type Note } from './notes';
-import { caption, cautionSvg, signSvg } from './paceIcons';
+import { caption, cautionSvg, signSvg, tone } from './paceIcons';
 import { scatter } from './scenery';
 import { MEDALS, formatGap, keepBest, medalFor, parseBestRun, sectorGap, sectorTimes, verdict, type BestRun } from './splits';
 import { canReset, creaturesAt, formatTime, locate, newTrial, resetToRoad, stepTrial, type Stage, type Trial } from './stage';
@@ -366,7 +366,7 @@ export function startRally(host: RallyHost): Rally {
   const callForLights = (): void => {
     if (!wantsLights(SKIES[light].dark, lightsOn, askedForLights, waited)) return;
     askedForLights = true;
-    voice.say('Lights!', true);
+    voice.say('Lights!', { urgent: true });
     setText(paceSaid, 'Lights!');
   };
 
@@ -774,7 +774,7 @@ export function startRally(host: RallyHost): Rally {
   /** The calls at the top: the next one large, the one after it smaller beside it. */
   const noteHtml = (note: Note): string => {
     const words = caption(note.sign);
-    return `<div class="icons">${signSvg(note.sign)}${cautionSvg(note.sign.caution)}</div>${words ? `<span>${words}</span>` : ''}`;
+    return `<div class="icons">${signSvg(note.sign)}${cautionSvg(note.sign.caution, tone(note.sign))}</div>${words ? `<span>${words}</span>` : ''}`;
   };
   const showCalls = (): void => {
     const shown = trial.phase === 'running' && !wrong.shown ? shownAt(notes, trial.progress) : null;
@@ -810,16 +810,19 @@ export function startRally(host: RallyHost): Rally {
     const turned = stepWrongWay(wrong, angleToRoad(stage, trial.progress, trial.car.heading), dt);
     wrong = turned;
     if (turned.began) {
-      voice.say('Wrong way!', true);
+      voice.say('Wrong way!', { urgent: true });
       setText(paceSaid, 'Wrong way!');
     }
     wrongEl.hidden = !wrong.shown;
     if (wrong.shown) return;
-    const calls = dueCalls(notes, nextCall, trial.progress, forward);
+    voice.tick();
+    const calls = dueCalls(notes, nextCall, trial.progress, forward, voice.delay);
     nextCall = calls.next;
     if (!calls.due.length) return;
     const line = joinCalls(calls.due);
-    voice.say(line);
+    // Checked again as the line waits and plays, against where the car is then.
+    const at = calls.due[0]!.at;
+    voice.say(line, { fresh: (delay) => trial.phase === 'running' && !isStale(at, trial.progress, carSpeeds(trial.car).forward, delay) });
     setText(paceSaid, line);
   };
 

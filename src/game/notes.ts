@@ -130,13 +130,13 @@ export function rockFields(rocks: readonly Rock[]): Rock[][] {
   return fields;
 }
 
-/** What the co-driver calls for each kind of stretch of road. */
+/** What the co-driver calls for each kind of stretch of road. Spoken calls are kept to a word or two, so they are over before the car is there. */
 export const PATCH_CALLS: Record<PatchKind, { text: string; say: string; caution: Caution }> = {
-  sand: { text: 'Sand, it slides', say: 'Caution, sand', caution: 1 },
-  mud: { text: 'Mud, slippery', say: 'Mud, careful', caution: 2 },
-  washout: { text: 'Washout!', say: 'Caution, washout', caution: 2 },
-  grid: { text: 'Cattle grid', say: 'Over cattle grid', caution: 0 },
-  splash: { text: 'Splash', say: 'Water splash', caution: 1 },
+  sand: { text: 'Sand, it slides', say: 'Sand', caution: 1 },
+  mud: { text: 'Mud, slippery', say: 'Mud!', caution: 2 },
+  washout: { text: 'Washout!', say: 'Washout!', caution: 2 },
+  grid: { text: 'Cattle grid', say: 'Cattle grid', caution: 0 },
+  splash: { text: 'Splash', say: 'Splash', caution: 1 },
 };
 
 /** Every call for a stage, in the order they come: its corners, and what lies on the road. */
@@ -152,14 +152,14 @@ export function paceNotes(stage: Stage): Note[] {
       notes.push({
         at,
         text: right ? 'Rocks on the right, keep left' : 'Rocks on the left, keep right',
-        say: right ? 'Rocks right, keep left' : 'Rocks left, keep right',
+        say: right ? 'Rocks, keep left' : 'Rocks, keep right',
         sign: { kind: 'rocks', side: right ? 'Right' : 'Left', caution: 2 },
       });
     }
   }
-  if (onStage(water.from)) notes.push({ at: water.from, text: 'Water!', say: 'Caution, water', sign: { kind: 'water', caution: 1 } });
-  if (onStage(bridge.from)) notes.push({ at: bridge.from - bridge.taper, text: 'Narrow bridge', say: 'Narrow bridge, keep middle', sign: { kind: 'bridge', caution: 2 } });
-  if (zebra.count && onStage(zebra.at)) notes.push({ at: zebra.at - 4, text: 'Caution, zebra!', say: 'Caution, zebra', sign: { kind: 'animals', animal: 'zebra', caution: 3 } });
+  if (onStage(water.from)) notes.push({ at: water.from, text: 'Water!', say: 'Water!', sign: { kind: 'water', caution: 1 } });
+  if (onStage(bridge.from)) notes.push({ at: bridge.from - bridge.taper, text: 'Narrow bridge', say: 'Narrow bridge', sign: { kind: 'bridge', caution: 2 } });
+  if (zebra.count && onStage(zebra.at)) notes.push({ at: zebra.at - 4, text: 'Caution, zebra!', say: 'Zebra!', sign: { kind: 'animals', animal: 'zebra', caution: 3 } });
   for (const patch of stage.hazards.patches ?? []) {
     if (!onStage(patch.from)) continue;
     const call = PATCH_CALLS[patch.kind];
@@ -171,21 +171,21 @@ export function paceNotes(stage: Stage): Note[] {
     notes.push({
       at: branch.along,
       text: right ? 'Branch on the right, keep left' : 'Branch on the left, keep right',
-      say: right ? 'Branch right, keep left' : 'Branch left, keep right',
+      say: right ? 'Branch, keep left' : 'Branch, keep right',
       sign: { kind: 'branch', side: right ? 'Right' : 'Left', caution: 2 },
     });
   }
   for (const group of stage.hazards.animals ?? []) {
     if (!onStage(group.at)) continue;
     // Flamingos keep to the water beside the road: nothing to call.
-    if (group.kind === 'giraffe') notes.push({ at: group.at - 4, text: 'Caution, giraffe!', say: 'Caution, giraffe', sign: { kind: 'animals', animal: 'giraffe', caution: 3 } });
-    if (group.kind === 'warthog') notes.push({ at: group.at - 4, text: 'Warthogs!', say: 'Caution, warthogs', sign: { kind: 'animals', animal: 'warthog', caution: 2 } });
+    if (group.kind === 'giraffe') notes.push({ at: group.at - 4, text: 'Caution, giraffe!', say: 'Giraffe crossing!', sign: { kind: 'animals', animal: 'giraffe', caution: 3 } });
+    if (group.kind === 'warthog') notes.push({ at: group.at - 4, text: 'Warthogs!', say: 'Warthogs, caution!', sign: { kind: 'animals', animal: 'warthog', caution: 2 } });
     if (group.kind === 'ostrich') {
       const right = group.side > 0;
-      notes.push({ at: group.at, text: right ? 'Ostrich on the right' : 'Ostrich on the left', say: right ? 'Ostrich right' : 'Ostrich left', sign: { kind: 'animals', animal: 'ostrich', caution: 1 } });
+      notes.push({ at: group.at, text: right ? 'Ostrich on the right' : 'Ostrich on the left', say: right ? 'Ostrich right!' : 'Ostrich left!', sign: { kind: 'animals', animal: 'ostrich', caution: 1 } });
     }
   }
-  for (const crest of crests) if (crest.height > 0 && onStage(crest.at)) notes.push({ at: crest.at - crest.reach, text: 'Crest, keep it flat', say: 'Over crest, keep it flat', sign: { kind: 'crest', caution: 1 } });
+  for (const crest of crests) if (crest.height > 0 && onStage(crest.at)) notes.push({ at: crest.at - crest.reach, text: 'Crest, keep it flat', say: 'Over crest', sign: { kind: 'crest', caution: 1 } });
   return notes.sort((a, b) => a.at - b.at);
 }
 

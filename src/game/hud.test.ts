@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CODRIVER, WRONG_WAY, angleToRoad, dueCalls, joinCalls, newWrongWay, pickVoice, sayFrom, stepWrongWay } from './codriver';
+import { CODRIVER, WRONG_WAY, angleToRoad, dueCalls, isStale, joinCalls, measureDelay, newWrongWay, pickVoice, sayFrom, stepWrongWay } from './codriver';
 import { engineRpm, gearFor } from './handling';
 import { REV_METER, kmh, needleAngle, revMeterSvg } from './instruments';
 import { fitMap, minimapSvg } from './minimap';
 import { NOTES, cornerCaution, cornerNote, paceNotes, shownAt, type Note } from './notes';
-import { ARROW_TURN, arrowPath, caption, cautionSvg, signSvg } from './paceIcons';
+import { ARROW_TURN, arrowPath, caption, cautionSvg, cornerTone, signSvg, tone } from './paceIcons';
 import { sectorGap, sectorTimes } from './splits';
 import { buildStage, poseAt } from './stage';
 
@@ -27,12 +27,15 @@ describe('pace-note signs', () => {
 
   it('say the hazards the way a co-driver would', () => {
     const said = notes.map((n) => n.say);
-    expect(said).toContain('Over crest, keep it flat');
-    expect(said).toContain('Caution, water');
-    expect(said).toContain('Caution, zebra');
-    expect(said).toContain('Caution, giraffe');
-    expect(said).toContain('Mud, careful');
-    expect(said).toContain('Branch left, keep right');
+    expect(said).toContain('Over crest');
+    expect(said).toContain('Water!');
+    expect(said).toContain('Mud!');
+    expect(said).toContain('Branch, keep right');
+    // Every animal has the one icon, so the call names it.
+    expect(said).toContain('Zebra!');
+    expect(said).toContain('Giraffe crossing!');
+    // Short enough to be over before the car is there.
+    for (const line of said) expect(line.split(' ').length).toBeLessThanOrEqual(4);
   });
 
   it('ask for more care on tighter corners, and most when they tighten', () => {
@@ -78,12 +81,40 @@ describe('pace-note icons', () => {
     for (const kind of ['crest', 'water', 'bridge', 'animals', 'sand', 'mud', 'washout', 'grid'] as const) expect(signSvg({ kind, caution: 1 })).toMatch(/^<svg[^>]*viewBox="0 0 100 100"[^]*<\/svg>$/);
     expect(signSvg({ kind: 'rocks', side: 'Right', caution: 2 })).toContain('<path');
     expect(signSvg({ kind: 'branch', side: 'Left', caution: 2 })).toContain('<path');
-    // Each animal has its own silhouette, and its name under it.
+    // Every animal shares the one antelope icon; its name goes under it.
     const animals = (['zebra', 'giraffe', 'warthog', 'ostrich', 'flamingo'] as const).map((animal) => signSvg({ kind: 'animals', animal, caution: 1 }));
-    expect(new Set(animals).size).toBe(5);
+    expect(new Set(animals).size).toBe(1);
     expect(caption({ kind: 'animals', animal: 'warthog', caution: 2 })).toBe('Warthogs');
     expect(caption({ kind: 'animals', caution: 2 })).toBe('Zebra');
     expect(caption({ kind: 'branch', side: 'Right', caution: 2 })).toBe('Branch · keep left');
+  });
+
+  it('colour a corner by how tight it is, the arrow and its number alike', () => {
+    expect([1, 2, 3, 4, 5, 6].map(cornerTone)).toEqual(['red', 'red', 'amber', 'amber', 'green', 'green']);
+    for (const grade of [1, 3, 6]) {
+      const svg = signSvg({ kind: 'corner', turn: 'Right', grade, change: null, caution: 0 });
+      // One colour for the whole icon: arrow and number both draw in currentColor, and nothing sets another.
+      expect(svg).toContain(`class="sign ${cornerTone(grade)}"`);
+      expect(svg).not.toMatch(/(fill|stroke)="(?!currentColor|none)/);
+    }
+  });
+
+  it('draw every hazard in the one warning style, with rounded lines and no box', () => {
+    const hazards = [
+      { kind: 'crest', caution: 1 },
+      { kind: 'mud', caution: 2 },
+      { kind: 'animals', animal: 'giraffe', caution: 3 },
+      { kind: 'rocks', side: 'Left', caution: 2 },
+    ] as const;
+    for (const sign of hazards) {
+      expect(tone(sign)).toBe('hazard');
+      const svg = signSvg(sign);
+      expect(svg).toContain('class="sign hazard"');
+      expect(svg).toContain('stroke-linecap="round" stroke-linejoin="round"');
+      expect(svg).not.toContain('<rect');
+    }
+    expect(cautionSvg(2, 'red')).toContain('class="caution red"');
+    expect(cautionSvg(2)).toContain('class="caution hazard"');
   });
 
   it('show caution as one, two or three exclamation marks', () => {
@@ -103,15 +134,41 @@ describe('the spoken co-driver', () => {
   const note = (at: number, say: string): Note => ({ at, say, text: say, sign: { kind: 'water', caution: 1 } });
   const list = [note(200, 'Left four'), note(230, 'Caution, water'), note(600, 'Right three')];
 
-  it('speaks earlier the faster the car goes, within limits', () => {
+  it('speaks a set time before the corner, the faster the car the further out, within limits', () => {
+    expect(CODRIVER.leadSeconds).toBe(2.5);
     expect(sayFrom(0)).toBe(CODRIVER.nearest);
-    expect(sayFrom(20)).toBeCloseTo(20 * CODRIVER.leadSeconds);
+    expect(sayFrom(20, 0)).toBeCloseTo(20 * 2.5);
     expect(sayFrom(200)).toBe(CODRIVER.farthest);
     expect(sayFrom(-20)).toBe(sayFrom(20));
   });
 
+  it("allows for the voice's own start delay", () => {
+    expect(sayFrom(20, 0.8)).toBeCloseTo(20 * (2.5 + 0.8));
+    expect(sayFrom(20, 0.8)).toBeGreaterThan(sayFrom(20, 0.1));
+    // A wild measurement is held to the limit.
+    expect(sayFrom(20, 10)).toBeCloseTo(20 * (2.5 + CODRIVER.maxDelay));
+  });
+
+  it('measures the start delay as a running average, within limits', () => {
+    let delay: number = CODRIVER.delay;
+    for (let i = 0; i < 30; i++) delay = measureDelay(delay, 0.9);
+    expect(delay).toBeCloseTo(0.9, 2);
+    expect(measureDelay(0.3, 50)).toBeLessThanOrEqual(CODRIVER.maxDelay);
+    expect(measureDelay(0.3, -1)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('counts a call stale once the car would be at it before the words start', () => {
+    expect(isStale(100, 101, 20)).toBe(true);
+    expect(isStale(100, 100, 0)).toBe(true);
+    expect(isStale(100, 40, 20)).toBe(false);
+    // 30 m out at 20 m/s is 1.5 s: fine with a quick voice, too late with a slow one.
+    expect(isStale(100, 70, 20, 0.2)).toBe(false);
+    expect(isStale(100, 70, 20, 1.2)).toBe(true);
+  });
+
   it('says each call once, when it is due', () => {
     expect(dueCalls(list, 0, 100, 10)).toEqual({ due: [], next: 0 });
+    expect(dueCalls(list, 0, 200 - sayFrom(10) - 1, 10).due).toEqual([]);
     const first = dueCalls(list, 0, 200 - sayFrom(10), 10);
     expect(first.due.map((n) => n.say)).toEqual(['Left four']);
     expect(dueCalls(list, first.next, 200 - sayFrom(10), 10).due).toEqual([]);
@@ -120,13 +177,16 @@ describe('the spoken co-driver', () => {
   it('runs calls that come together into one line', () => {
     const both = dueCalls(list, 0, 180, 20);
     expect(both.due).toHaveLength(2);
-    expect(joinCalls(both.due)).toBe('Left four, into caution, water');
+    expect(joinCalls(both.due)).toBe('Left four into caution, water');
   });
 
-  it('drops a call the car has already gone past', () => {
-    const late = dueCalls(list, 0, 230 + NOTES.hold + 1, 10);
+  it('drops a call that would be stale by the time it is said, instead of saying it late', () => {
+    const late = dueCalls(list, 0, 231, 10);
     expect(late.due).toEqual([]);
     expect(late.next).toBe(2);
+    // Too close to say in time, though not yet reached: the next one is said on its own.
+    const close = dueCalls(list, 0, 196, 20, 0.3);
+    expect(close.due.map((n) => n.say)).toEqual(['Caution, water']);
   });
 
   it('says every call on the stage in a run at a steady pace, in order', () => {
