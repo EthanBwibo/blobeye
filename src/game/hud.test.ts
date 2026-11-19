@@ -239,9 +239,37 @@ describe('wrong way', () => {
   });
 
   it('clears once the car turns round', () => {
-    const up = { for: 2, shown: true };
+    const up = { for: 2, shown: true, said: 1, since: 1 };
     expect(stepWrongWay(up, (100 * Math.PI) / 180, 0.1).shown).toBe(true);
-    expect(stepWrongWay(up, 0.2, 0.1)).toEqual({ for: 0, shown: false, began: false });
+    expect(stepWrongWay(up, 0.2, 0.1)).toEqual({ for: 0, shown: false, said: 0, since: 0, began: false, cleared: true, call: null });
+    expect(stepWrongWay(newWrongWay(), 0.2, 0.1).cleared).toBe(false);
+  });
+
+  it('calls again every 4 seconds while it is up, going round the lines, and stops once the car turns round', () => {
+    let state = newWrongWay();
+    const calls: [number, string][] = [];
+    const dt = 0.05;
+    let t = 0;
+    for (; t < 14; t += dt) {
+      const next = stepWrongWay(state, Math.PI, dt);
+      if (next.call) calls.push([t, next.call]);
+      state = next;
+    }
+    expect(WRONG_WAY.repeat).toBe(4);
+    expect(calls.map(([, line]) => line)).toEqual(['Wrong way!', 'Turn around!', 'Geuza!', 'Wrong way!']);
+    for (let i = 1; i < calls.length; i++) expect(calls[i]![0] - calls[i - 1]![0]).toBeCloseTo(WRONG_WAY.repeat, 1);
+    // Back on course: nothing more is said, and the next time round starts from the first line again.
+    const back = stepWrongWay(state, 0.1, dt);
+    expect(back.call).toBeNull();
+    expect(back.cleared).toBe(true);
+    state = back;
+    let first: string | null = null;
+    for (let i = 0; i < 40 && !first; i++) {
+      const next = stepWrongWay(state, Math.PI, dt);
+      first = next.call;
+      state = next;
+    }
+    expect(first).toBe('Wrong way!');
   });
 
   it('is not set off by a slide side-on', () => {

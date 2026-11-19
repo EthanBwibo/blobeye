@@ -95,15 +95,21 @@ export const WRONG_WAY = {
   round: (80 * Math.PI) / 180,
   /** Seconds facing backwards before the warning shows. */
   after: 1,
+  /** While it stays up, the co-driver calls again this often, in seconds, going round these lines. */
+  repeat: 4,
+  lines: ['Wrong way!', 'Turn around!', 'Geuza!'],
 } as const;
 
 export interface WrongWay {
   /** Seconds the car has been facing backwards. */
   for: number;
   shown: boolean;
+  /** How many calls have been made since it went up, and the seconds since the last. */
+  said: number;
+  since: number;
 }
 
-export const newWrongWay = (): WrongWay => ({ for: 0, shown: false });
+export const newWrongWay = (): WrongWay => ({ for: 0, shown: false, said: 0, since: 0 });
 
 /** How far the car's nose is from the road's direction where it is, in radians: 0 to pi. */
 export function angleToRoad(stage: Stage, along: number, heading: number): number {
@@ -111,13 +117,23 @@ export function angleToRoad(stage: Stage, along: number, heading: number): numbe
   return Math.abs(Math.atan2(Math.sin(heading - road), Math.cos(heading - road)));
 }
 
-/** Advance the warning. `began` is true on the step it goes up, so it is said once. */
-export function stepWrongWay(state: WrongWay, angle: number, dt: number): WrongWay & { began: boolean } {
-  if (angle < WRONG_WAY.round) return { for: 0, shown: false, began: false };
+/**
+ * Advance the warning. `began` is true on the step it goes up, `cleared` on the step it comes down, and `call`
+ * is the line to say on this step, if any: one as it goes up, then the next of `WRONG_WAY.lines` every
+ * `WRONG_WAY.repeat` seconds for as long as it stays up.
+ */
+export function stepWrongWay(state: WrongWay, angle: number, dt: number): WrongWay & { began: boolean; cleared: boolean; call: string | null } {
+  if (angle < WRONG_WAY.round) return { ...newWrongWay(), began: false, cleared: state.shown, call: null };
   // Between the two angles the car is side-on: the count holds, so a slide does not set it off.
   const time = angle > WRONG_WAY.backwards ? state.for + dt : state.for;
   const shown = state.shown || time > WRONG_WAY.after;
-  return { for: time, shown, began: shown && !state.shown };
+  const began = shown && !state.shown;
+  if (!shown) return { for: time, shown, said: 0, since: 0, began, cleared: false, call: null };
+  const since = began ? WRONG_WAY.repeat : state.since + dt;
+  if (since < WRONG_WAY.repeat - 1e-6) return { for: time, shown, said: state.said, since, began, cleared: false, call: null };
+  const call = WRONG_WAY.lines[state.said % WRONG_WAY.lines.length]!;
+  // The remainder is carried over, so the calls keep to the beat whatever the step.
+  return { for: time, shown, said: state.said + 1, since: Math.max(0, since - WRONG_WAY.repeat), began, cleared: false, call };
 }
 
 /** The co-driver asks for the lights this long into the count, so the call is not lost in the cut to the stage. */
