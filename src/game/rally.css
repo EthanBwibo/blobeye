@@ -20,6 +20,8 @@
 #rally .side{position:absolute; right:20px; top:20px; display:flex; flex-direction:column; align-items:flex-end; gap:8px}
 #rally .side .hud{position:static}
 #rally .tools{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px}
+/* the camera button, and on a phone the drawer's button beside it */
+#rally .side .row{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px}
 #rally .tool{
   min-height:32px; padding:5px 10px; background:color-mix(in srgb,var(--paper-2) 92%,transparent); border:1.5px solid var(--ink);
   color:var(--ink); font-family:var(--f-mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; cursor:pointer;
@@ -195,6 +197,8 @@
   touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
   /* the controls' height, and the gap kept from the screen's edges */
   --ctl:clamp(92px,32vh,150px); --edge:10px;
+  /* an arrow pad: about a thumb across */
+  --pad:clamp(56px,19vh,76px);
   --l:max(var(--edge),env(safe-area-inset-left)); --r:max(var(--edge),env(safe-area-inset-right));
   --b:max(var(--edge),env(safe-area-inset-bottom));
 }
@@ -240,6 +244,19 @@
 #rally .handbrake .arm{transform-box:view-box; transform-origin:20px 104px; transform:rotate(-38deg); transition:transform .08s ease-out}
 #rally .handbrake.on .arm{transform:rotate(-6deg)}
 #rally .handbrake.on .grip{fill:var(--gold)}
+/* A control turned off in the settings is gone: the wheel or the arrows, and the handbrake lever. */
+#rally .pads [hidden]{display:none !important}
+
+/* the arrow pads, bottom left, in place of the wheel: two thumb-sized buttons, held to steer */
+#rally .pads .arrows{position:absolute; left:var(--l); bottom:var(--b); display:flex; gap:12px; pointer-events:auto; touch-action:none}
+#rally .pads .arrow{
+  width:var(--pad); height:var(--pad); display:grid; place-items:center; box-sizing:border-box;
+  border:2px solid var(--ink); border-radius:14px; background:color-mix(in srgb,var(--paper-2) 70%,transparent);
+}
+#rally .pads .arrow svg{width:60%; height:60%; display:block; fill:var(--ink)}
+#rally .pads .arrow.right svg{transform:scaleX(-1)}
+#rally .pads .arrow.on{background:var(--ink)}
+#rally .pads .arrow.on svg{fill:var(--gold)}
 
 /* the clock and a small rev meter with the gear, top left */
 #rally.touch .hud{padding:4px 8px; font-size:9px}
@@ -291,7 +308,7 @@
 
 /* The finish: the end screen on the left and the tools and the top ten on the right, and nothing else. */
 #rally.touch.done .clock, #rally.touch.done .gauges, #rally.touch.done .pace, #rally.touch.done .pads,
-#rally.touch.done .wrongway, #rally.touch.done .corner{display:none}
+#rally.touch.done .wrongway, #rally.touch.done .corner, #rally.touch.done .camera{display:none}
 #rally.touch.done .side{width:210px; max-height:calc(100vh - var(--edge) * 2); overflow:auto}
 #rally.touch.done .board{width:100%; box-sizing:border-box}
 #rally.touch.done .call{

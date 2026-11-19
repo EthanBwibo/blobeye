@@ -47,13 +47,17 @@ export function arrowPath(turn: number): { line: string; head: string; end: [num
   return { line: points.join(''), head, end: tip };
 }
 
-function corner(turn: 'Left' | 'Right', grade: number): string {
+/** A hairpin's arrow turns right back on itself, and carries no number. */
+export const HAIRPIN_TURN = 180;
+
+function corner(turn: 'Left' | 'Right', grade: number, hairpin = false): string {
   const g = Math.min(6, Math.max(1, Math.round(grade)));
-  const { line, head } = arrowPath(ARROW_TURN[g]!);
+  const { line, head } = arrowPath(hairpin ? HAIRPIN_TURN : ARROW_TURN[g]!);
   // Drawn turning right, and mirrored for a left. The number stays the right way round, on the inside of the bend.
   const flip = turn === 'Left' ? ' transform="matrix(-1 0 0 1 100 0)"' : '';
   const nx = turn === 'Left' ? 78 : 22;
-  return `<g${flip}><path d="${line}" fill="none" stroke="currentColor" stroke-width="9"/><path d="${head}" fill="currentColor" stroke="currentColor" stroke-width="5"/></g><text x="${nx}" y="97" text-anchor="middle" class="grade">${g}</text>`;
+  const number = hairpin ? '' : `<text x="${nx}" y="97" text-anchor="middle" class="grade">${g}</text>`;
+  return `<g${flip}><path d="${line}" fill="none" stroke="currentColor" stroke-width="9"/><path d="${head}" fill="currentColor" stroke="currentColor" stroke-width="5"/></g>${number}`;
 }
 
 const ICONS: Record<Exclude<Sign['kind'], 'corner' | 'animals'>, string> = {
@@ -100,7 +104,7 @@ const ANIMAL_ICON =
 
 /** The icon for a call. */
 export function signSvg(sign: Sign): string {
-  const body = sign.kind === 'corner' ? corner(sign.turn, sign.grade) : sign.kind === 'animals' ? ANIMAL_ICON : ICONS[sign.kind];
+  const body = sign.kind === 'corner' ? corner(sign.turn, sign.grade, sign.hairpin) : sign.kind === 'animals' ? ANIMAL_ICON : ICONS[sign.kind];
   return `<svg viewBox="0 0 100 100" class="sign ${tone(sign)}" ${ROUND} aria-hidden="true">${body}</svg>`;
 }
 
@@ -116,7 +120,7 @@ const ANIMAL_CAPTIONS: Record<'zebra' | Species, string> = { zebra: 'Zebra', gir
 export function caption(sign: Sign): string {
   switch (sign.kind) {
     case 'corner':
-      return sign.change ?? '';
+      return sign.hairpin ? 'hairpin' : (sign.change ?? '');
     case 'rocks':
       return `Rocks · keep ${sign.side === 'Right' ? 'left' : 'right'}`;
     case 'branch':
