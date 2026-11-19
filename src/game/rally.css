@@ -63,6 +63,9 @@
   font:inherit; letter-spacing:inherit; text-transform:uppercase;
 }
 #rally .name input:focus-visible{outline:2px solid var(--gold); outline-offset:2px}
+#rally .name input[aria-invalid="true"]{border-color:var(--gold)}
+#rally .name .refused{color:var(--gold); font-size:12px; letter-spacing:.08em; text-transform:uppercase}
+#rally .name .refused:empty{display:none}
 #rally .keys{left:20px; bottom:20px; flex-direction:row; gap:18px; color:var(--ink-soft)}
 #rally .way{position:absolute; left:0; top:0; height:5px; background:var(--gold); width:0}
 #rally .call{left:50%; top:22%; transform:translateX(-50%); align-items:center; text-align:center; padding:14px 22px; gap:6px}

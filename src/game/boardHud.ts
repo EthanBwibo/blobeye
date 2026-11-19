@@ -3,6 +3,7 @@
  * finish. The rules and the storage are in `leaderboard.ts`; this file is only the page.
  */
 import { BOARD_SIZE, DEFAULT_NAME, NAME_LENGTH, SEASON, addEntry, cleanName, openBoard, type Entry } from './leaderboard';
+import { NAME_REFUSED, offensiveName } from './names';
 import { formatTime } from './stage';
 
 export interface BoardHud {
@@ -69,7 +70,16 @@ export function createBoardHud(
   skip.type = 'button';
   skip.className = 'skip';
   skip.textContent = 'Skip';
-  form.append(label, skip);
+  /** Says so when a name is turned away. Read out as soon as it shows. */
+  const refused = document.createElement('small');
+  refused.className = 'refused';
+  refused.setAttribute('role', 'alert');
+  form.append(label, skip, refused);
+  const refuse = (shown: boolean): void => {
+    refused.textContent = shown ? NAME_REFUSED : '';
+    input.setAttribute('aria-invalid', String(shown));
+  };
+  input.addEventListener('input', () => refuse(false));
   call.append(form);
 
   /** Whether this board is meant to be the one everyone shares. If it then says otherwise, it has fallen back. */
@@ -124,6 +134,7 @@ export function createBoardHud(
 
   const close = (): void => {
     waiting = null;
+    refuse(false);
     form.hidden = true;
     onDone();
   };
@@ -134,6 +145,13 @@ export function createBoardHud(
     e.preventDefault();
     if (waiting === null) return;
     const entry = { name: cleanName(input.value), time: waiting };
+    // Everyone sees the names on the board: the worst are turned away here, and the box stays open for another.
+    if (offensiveName(entry.name)) {
+      refuse(true);
+      input.focus();
+      input.select();
+      return;
+    }
     const replay = waitingReplay;
     lastName = entry.name;
     mine = entry;
