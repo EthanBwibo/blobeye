@@ -990,10 +990,13 @@ export function startRally(host: RallyHost): Rally {
     const { forward } = carSpeeds(trial.car);
     const turned = stepWrongWay(wrong, angleToRoad(stage, trial.progress, trial.car.heading), dt);
     wrong = turned;
-    if (turned.began) {
-      voice.say('Wrong way!', { urgent: true });
-      setText(paceSaid, 'Wrong way!');
+    // Each wrong-way call cuts off whatever is being said. Once the car faces the right way the last one is cut
+    // short too, and the pace notes take up again from where the car is.
+    if (turned.call) {
+      voice.say(turned.call, { urgent: true });
+      setText(paceSaid, turned.call);
     }
+    if (turned.cleared) voice.hush();
     wrongEl.hidden = !wrong.shown;
     if (wrong.shown) return;
     voice.tick();

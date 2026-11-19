@@ -212,6 +212,8 @@
   --pad:clamp(56px,19vh,76px);
   --l:max(var(--edge),env(safe-area-inset-left)); --r:max(var(--edge),env(safe-area-inset-right));
   --b:max(var(--edge),env(safe-area-inset-bottom));
+  /* the top of the pedals, their arms and the handbrake's grip, measured from the bottom of the screen, with room to spare */
+  --pedal-top:calc(var(--b) + var(--ctl) + 22px);
 }
 #rally .pads{display:none}
 #rally.touch .pads{display:block; position:absolute; inset:0; pointer-events:none; opacity:.72}
@@ -242,7 +244,7 @@
 /* the pedal's arm, going up out of sight */
 #rally .pedal::before{content:""; position:absolute; left:50%; top:-14px; width:8px; height:16px; margin-left:-4px; background:var(--ink); border-radius:3px 3px 0 0}
 #rally .pedal.brake{width:calc(var(--ctl) * .52); height:calc(var(--ctl) * .58)}
-#rally .pedal.throttle{width:calc(var(--ctl) * .34); height:calc(var(--ctl) * .9)}
+#rally .pedal.throttle{width:calc(var(--ctl) * .41); height:calc(var(--ctl) * .9)}
 #rally .pedal.on{transform:perspective(240px) rotateX(32deg) scaleY(.94)}
 #rally .pedal.on i{background:repeating-linear-gradient(180deg,var(--ink) 0 3px,color-mix(in srgb,var(--gold) 70%,transparent) 3px 9px)}
 #rally .pads .handbrake{width:calc(var(--ctl) * .3); height:calc(var(--ctl) * .9); display:flex; align-items:flex-end}
@@ -287,16 +289,31 @@
 #rally.touch.calling .pace{visibility:hidden}
 #rally.touch .wrongway{font-size:clamp(32px,7vw,60px); padding:2px 18px; top:38%}
 
-/* top right: the drawer's button, and the drawer itself, which stops short of the pedals */
+/* top right: the drawer's button, and the drawer itself, which stops short of the pedals. During a run the
+   column reaches from the top buttons down to just above the pedals and no further; the drawer takes what is
+   left under the buttons and scrolls when its items do not fit. */
 #rally.touch .side{right:var(--r); top:var(--edge); gap:6px; width:min(300px,calc(50% - 64px))}
+#rally.touch:not(.done) .side{bottom:var(--pedal-top); pointer-events:none}
+#rally.touch:not(.done) .side > *{pointer-events:auto; flex-shrink:0}
 #rally.touch .tool{min-height:34px; font-size:10px; padding:4px 9px}
 #rally.touch .corner{display:inline-block; align-self:flex-end}
 #rally .drawer{display:none}
 #rally.touch .drawer{
-  flex-wrap:wrap; justify-content:flex-end; align-items:flex-start; gap:6px;
-  max-height:calc(100vh - var(--ctl) - var(--edge) * 3 - 40px); overflow:auto; pointer-events:auto;
+  flex-wrap:wrap; justify-content:flex-end; align-items:flex-start; align-content:flex-start; gap:6px;
+  overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; pointer-events:auto;
 }
+#rally.touch:not(.done) .side > .drawer{flex:0 1 auto; min-height:0; touch-action:pan-y}
+#rally.touch .drawer *{touch-action:pan-y}
 #rally.touch.open:not(.done) .drawer{display:flex}
+/* Sideways, which is how the stage is driven, the items go in two columns, so most fit without scrolling. */
+@media (orientation:landscape){
+  #rally.touch.open:not(.done) .drawer{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; justify-items:stretch; width:100%; box-sizing:border-box}
+  #rally.touch:not(.done) .drawer .splits{min-width:0}
+  #rally.touch:not(.done) .drawer .minimap{justify-self:end}
+  #rally.touch:not(.done) .drawer .codriver{grid-column:1 / -1}
+  #rally.touch:not(.done) .drawer .tools{grid-column:1 / -1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px}
+  #rally.touch:not(.done) .drawer .tools .tool{width:100%; box-sizing:border-box; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+}
 #rally.touch .drawer .hud{position:static; transform:none; inset:auto}
 #rally.touch .drawer .tools{width:100%}
 #rally.touch .drawer .splits{min-width:130px}
