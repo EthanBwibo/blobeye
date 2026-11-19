@@ -124,6 +124,13 @@ export function deviceBoard(store: Store | null, stage: string = STAGE_ID): Boar
   };
 }
 
+/**
+ * The season the shared board is in. Every time sent carries it, and every read (the top ten, the medal
+ * benchmark that comes with it, and the stage-record ghost) asks for this season's times only. The table's
+ * `season` column defaults to 1, the times set before seasons began. A new season is a new number here.
+ */
+export const SEASON = 2;
+
 /** The shared table refuses times outside these, in seconds: no car could set a quicker one, and nobody waits for a slower. */
 export const SHARED_TIMES = { least: 20, most: 600 } as const;
 /** How long to wait for the shared board before falling back, in milliseconds. */
@@ -145,8 +152,9 @@ type Send = (url: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | '
 
 /**
  * A board shared by everyone, kept in a Supabase table and reached over its REST API with the public key.
- * The table is `rally_times`: `name`, `time_ms`, `stage`, `created_at`, and `replay`, the run packed for the
- * ghost (empty for older times). The key may read and insert, nothing else. The top ten never reads `replay`.
+ * The table is `rally_times`: `name`, `time_ms`, `stage`, `season`, `created_at`, and `replay`, the run packed
+ * for the ghost (empty for older times). Only this `SEASON`'s times are read, and every time sent is marked
+ * with it. The key may read and insert, nothing else. The top ten never reads `replay`.
  *
  * Each stage's times are kept apart by the table's `stage` column: this board reads and writes `stage`'s.
  * Every time also goes on `device`, the board on this device, so it is never lost. Whenever the shared
@@ -155,12 +163,13 @@ type Send = (url: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | '
  */
 export function sharedBoard(url: string, key: string, device: Board, send: Send = (to, init) => fetch(to, init), stage: string = STAGE_ID): Board {
   const table = `${url.replace(/\/+$/, '')}/rest/v1/rally_times`;
+  const ours = `stage=eq.${encodeURIComponent(stage)}&season=eq.${SEASON}`;
   const headers = { apikey: key, Authorization: `Bearer ${key}` };
   const waiting = (): { signal?: AbortSignal } => (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? { signal: AbortSignal.timeout(PATIENCE) } : {});
   let reached = true;
 
   const read = async (): Promise<Entry[]> => {
-    const query = `select=name,time_ms&stage=eq.${encodeURIComponent(stage)}&order=time_ms.asc,created_at.asc&limit=${BOARD_SIZE}`;
+    const query = `select=name,time_ms&${ours}&order=time_ms.asc,created_at.asc&limit=${BOARD_SIZE}`;
     const answer = await send(`${table}?${query}`, { headers, ...waiting() });
     if (!answer.ok) throw new Error(`The shared board answered ${answer.status}`);
     return rowsToEntries(await answer.json());
@@ -191,7 +200,7 @@ export function sharedBoard(url: string, key: string, device: Board, send: Send 
         const answer = await send(table, {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-          body: JSON.stringify({ name: kept.name, time_ms, stage, ...replay }),
+          body: JSON.stringify({ name: kept.name, time_ms, stage, season: SEASON, ...replay }),
           ...waiting(),
         });
         if (!answer.ok) throw new Error(`The shared board answered ${answer.status}`);
@@ -205,7 +214,7 @@ export function sharedBoard(url: string, key: string, device: Board, send: Send 
       }
     },
     async record() {
-      const query = `select=name,time_ms,replay&stage=eq.${encodeURIComponent(stage)}&replay=not.is.null&order=time_ms.asc,created_at.asc&limit=1`;
+      const query = `select=name,time_ms,replay&${ours}&replay=not.is.null&order=time_ms.asc,created_at.asc&limit=1`;
       const answer = await send(`${table}?${query}`, { headers, ...waiting() });
       if (!answer.ok) throw new Error(`The shared board answered ${answer.status}`);
       const rows = (await answer.json()) as unknown;

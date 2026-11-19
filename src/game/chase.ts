@@ -26,8 +26,8 @@ export const CHASE = {
   lookHeight: 1,
   /** Of the angle between where the camera faces and where the nose points, the share the look point takes up. */
   lead: 0.35,
-  /** The lens, in degrees, and how much it widens for each m/s. */
-  fov: 58,
+  /** The lens, in degrees, and how much it widens for each m/s. Widened from 58: the plain and the hills go wherever the camera does, so a wider view never runs off the edge of the world. */
+  fov: 61,
   fovGain: 0.28,
 } as const;
 
@@ -63,8 +63,8 @@ export const onBoard = (mode: CameraMode): mode is 'bonnet' | 'cockpit' => mode 
  * seat, on the right: the car is right-hand drive, as in Kenya.
  */
 export const MOUNTS = {
-  bonnet: { ahead: 0.95, right: 0, up: 1.25, look: 30, drop: 1.1, fov: 62 },
-  cockpit: { ahead: -0.2, right: 0.37, up: 1.2, look: 30, drop: 1.5, fov: 68 },
+  bonnet: { ahead: 0.95, right: 0, up: 1.25, look: 30, drop: 1.1, fov: 65 },
+  cockpit: { ahead: -0.2, right: 0.37, up: 1.2, look: 30, drop: 1.5, fov: 71 },
 } as const;
 /** How much a camera on the car widens for each m/s: less than the chase camera, as the road rushing past does the rest. */
 export const MOUNT_FOV_GAIN = 0.12;

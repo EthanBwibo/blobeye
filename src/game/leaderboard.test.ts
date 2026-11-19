@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { packReplay } from './ghost';
-import { BOARD_SIZE, DEFAULT_NAME, NAME_LENGTH, STAGE_ID, addEntry, boardKey, cleanName, deviceBoard, parseBoard, placeOf, rowsToEntries, sharedBoard, type Entry } from './leaderboard';
+import { BOARD_SIZE, DEFAULT_NAME, NAME_LENGTH, SEASON, STAGE_ID, addEntry, boardKey, cleanName, deviceBoard, parseBoard, placeOf, rowsToEntries, sharedBoard, type Entry } from './leaderboard';
 
 /** A replay of a run of `time` seconds, straight along the x axis. */
 const replayOf = (time: number): string => {
@@ -183,6 +183,7 @@ describe('sharedBoard', () => {
     const query = new URLSearchParams(url.split('?')[1]);
     expect(query.get('select')).toBe('name,time_ms');
     expect(query.get('stage')).toBe('eq.' + STAGE_ID);
+    expect(query.get('season')).toBe('eq.' + SEASON);
     expect(query.get('order')).toBe('time_ms.asc,created_at.asc');
     expect(query.get('limit')).toBe(String(BOARD_SIZE));
     expect(init.method ?? 'GET').toBe('GET');
@@ -197,7 +198,7 @@ describe('sharedBoard', () => {
     expect(top).toEqual([{ name: 'Tommi', time: 61 }, { name: 'Ethan 3', time: 63.21 }]);
     const post = table.calls.find((c) => c.init.method === 'POST')!;
     expect(post.url).toBe(URL + '/rest/v1/rally_times');
-    expect(JSON.parse(String(post.init.body))).toEqual({ name: 'Ethan 3', time_ms: 63210, stage: STAGE_ID });
+    expect(JSON.parse(String(post.init.body))).toEqual({ name: 'Ethan 3', time_ms: 63210, stage: STAGE_ID, season: SEASON });
     expect(post.init.headers).toMatchObject({ apikey: KEY, 'Content-Type': 'application/json' });
     // Only ever a read or an insert.
     expect(new Set(table.calls.map((c) => c.init.method ?? 'GET'))).toEqual(new Set(['GET', 'POST']));
@@ -253,7 +254,7 @@ describe('sharedBoard', () => {
     const board = sharedBoard(URL, KEY, deviceBoard(null, 'hells-gate'), table.send, 'hells-gate');
     await board.add({ name: 'Ethan', time: 61.5 });
     const post = table.calls.find((c) => c.init.method === 'POST')!;
-    expect(JSON.parse(String(post.init.body))).toMatchObject({ stage: 'hells-gate' });
+    expect(JSON.parse(String(post.init.body))).toMatchObject({ stage: 'hells-gate', season: SEASON });
     const read = table.calls.find((c) => (c.init.method ?? 'GET') === 'GET')!;
     expect(new URLSearchParams(read.url.split('?')[1]).get('stage')).toBe('eq.hells-gate');
   });
@@ -265,9 +266,9 @@ describe('sharedBoard', () => {
     await board.add({ name: 'Ethan', time: 63.21, replay: fits });
     await board.add({ name: 'Ethan', time: 64, replay: replayOf(50) });
     const posts = table.calls.filter((c) => c.init.method === 'POST').map((c) => JSON.parse(String(c.init.body)));
-    expect(posts[0]).toEqual({ name: 'Ethan', time_ms: 63210, stage: STAGE_ID, replay: fits });
+    expect(posts[0]).toEqual({ name: 'Ethan', time_ms: 63210, stage: STAGE_ID, season: SEASON, replay: fits });
     // Ten seconds short: the time still goes, without it.
-    expect(posts[1]).toEqual({ name: 'Ethan', time_ms: 64000, stage: STAGE_ID });
+    expect(posts[1]).toEqual({ name: 'Ethan', time_ms: 64000, stage: STAGE_ID, season: SEASON });
     for (const read of table.calls.filter((c) => (c.init.method ?? 'GET') === 'GET')) {
       expect(new URLSearchParams(read.url.split('?')[1]).get('select')).toBe('name,time_ms');
     }
@@ -285,6 +286,7 @@ describe('sharedBoard', () => {
     const query = new URLSearchParams(urls[0]!.split('?')[1]);
     expect(query.get('select')).toBe('name,time_ms,replay');
     expect(query.get('stage')).toBe('eq.roysambu');
+    expect(query.get('season')).toBe('eq.' + SEASON);
     expect(query.get('replay')).toBe('not.is.null');
     expect(query.get('order')).toBe('time_ms.asc,created_at.asc');
     expect(query.get('limit')).toBe('1');

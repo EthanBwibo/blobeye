@@ -37,9 +37,14 @@ describe('door mirrors', () => {
     expect(z).toBeGreaterThan(PARTS.doors[1]);
     expect(y).toBeLessThan(lerpAt(BELT, z));
     expect(x).toBeCloseTo(sideX(z, y), 5);
-    // Daylight between the door and the housing's inner end, bridged by the stalk
+    // Daylight between the door and the housing's inner end, bridged by a short arm
     expect(mirror.x - mirror.halfWidth - x).toBeGreaterThan(1.2);
+    expect(mirror.x - mirror.halfWidth - x).toBeLessThan(2);
     expect(mirror.stalk).toBeGreaterThan(0.2);
+  });
+  it('are wedges: shallow at the arm, deeper at the outer end', () => {
+    expect(mirror.depth[1]).toBeGreaterThan(mirror.depth[0] * 1.8);
+    expect(mirror.height[1]).toBeGreaterThan(mirror.height[0]);
   });
 });
 

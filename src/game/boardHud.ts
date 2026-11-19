@@ -2,7 +2,7 @@
  * The top ten on the game's screen: the list in the corner, and the box that asks for a name after a
  * finish. The rules and the storage are in `leaderboard.ts`; this file is only the page.
  */
-import { BOARD_SIZE, DEFAULT_NAME, NAME_LENGTH, addEntry, cleanName, openBoard, type Entry } from './leaderboard';
+import { BOARD_SIZE, DEFAULT_NAME, NAME_LENGTH, SEASON, addEntry, cleanName, openBoard, type Entry } from './leaderboard';
 import { formatTime } from './stage';
 
 export interface BoardHud {
@@ -26,14 +26,26 @@ const same = (a: Entry, b: Entry): boolean => a.name === b.name && Math.round(a.
  * @param call the finish panel, which gets the name box
  * @param onDone called when the name box closes, so the game can take the keys back
  * @param touch the player has a touch screen and no keys, so the notes name the buttons instead
+ * @param onTop told each time the top ten arrives, and whether it is the shared board's: this season's times
+ *   on it set the medal times (see `paceTargets` in splits.ts), so they need no request of their own
  */
-export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () => void, board = openBoard(), touch = false): BoardHud {
+export function createBoardHud(
+  root: HTMLElement,
+  call: HTMLElement,
+  onDone: () => void,
+  board = openBoard(),
+  touch = false,
+  onTop: (entries: readonly Entry[], shared: boolean) => void = () => undefined,
+): BoardHud {
   const panel = document.createElement('div');
   panel.className = 'hud board';
   const heading = document.createElement('span');
   heading.className = 'heading';
   const title = document.createElement('span');
-  title.textContent = 'Top ten';
+  const season = document.createElement('em');
+  season.className = 'season';
+  season.textContent = `Season ${SEASON}`;
+  title.append('Top ten ', season);
   /** Which board is in use: the shared one, or this device's own. */
   const where = document.createElement('small');
   heading.append(title, where);
@@ -69,6 +81,8 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
   let mine: Entry | null = null;
   let sending = false;
   let lastName = '';
+  /** Taken off the screen: a top ten still on its way is for a stage no longer being driven. */
+  let gone = false;
 
   const draw = (): void => {
     const online = board.scope === 'everyone';
@@ -103,6 +117,7 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
   const show = (rows: Entry[]): void => {
     entries = rows.slice(0, BOARD_SIZE);
     draw();
+    if (!gone) onTop(entries, board.scope === 'everyone');
   };
   draw();
   board.top().then(show, () => undefined);
@@ -169,6 +184,7 @@ export function createBoardHud(root: HTMLElement, call: HTMLElement, onDone: () 
       if (waiting !== null) close();
     },
     dispose() {
+      gone = true;
       waiting = null;
       panel.remove();
       form.remove();

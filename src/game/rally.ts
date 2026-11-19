@@ -18,13 +18,15 @@ import { beatsGhost, finishGhost, ghostAt, ghostText, newRecorder, packReplay, p
 import { carSpeeds, easeSteer, engineRpm, gearFor, type DriveInput } from './handling';
 import { groundAt } from './hazards';
 import { kmh, needleAngle, revMeterSvg, DIAL } from './instruments';
-import { boardKey, openBoard, STAGE_ID, type Board } from './leaderboard';
+import { boardKey, openBoard, SEASON, STAGE_ID, type Board } from './leaderboard';
 import { SKIES, lampStrength, pickLight, type Light } from './light';
 import { minimapSvg } from './minimap';
 import { paceNotes, shownAt, type Note } from './notes';
 import { caption, cautionSvg, signSvg, tone } from './paceIcons';
 import { scatter } from './scenery';
-import { MEDALS, formatGap, keepBest, medalFor, parseBestRun, sectorGap, sectorTimes, verdict, type BestRun } from './splits';
+import { MEDALS, formatGap, keepBest, medalFor, medalNote, paceLine, paceTargets, parseBestRun, sectorGap, sectorTimes, verdict, type BestRun, type MedalTimes } from './splits';
+import { drawCard, shareCard, type Card } from './shareCard';
+import { PLATE_WORD } from '../car/plates';
 import { canReset, creaturesAt, formatTime, locate, newTrial, resetToRoad, stepTrial, worldTime, type Stage, type Trial } from './stage';
 import { STAGES, buildStageOf, moveRenamed, stageById, type StageDef } from './stages';
 import { STEERING_NAMES, buzz, buzzFor, createTouchPads, nextSteering, readSteering, tiltSteer, type Steering, type TouchPads } from './touch';
@@ -221,7 +223,7 @@ export function startRally(host: RallyHost): Rally {
         <button type="button" class="tool touch-only" data-tool="leave">Leave</button>
       </div>
     </div>
-    <div class="hud call" data-call aria-live="assertive"><b data-call-big></b><strong data-verdict hidden></strong><span class="targets" data-targets hidden></span><span data-call-small></span><span class="stages" data-stages role="group" aria-label="Stage">${stageButtons}</span><small data-credit hidden>Unofficial fan project. Subaru didn't ask for this.</small></div>
+    <div class="hud call" data-call aria-live="assertive"><b data-call-big></b><strong data-verdict hidden></strong><span class="targets" data-targets hidden></span><button type="button" class="tool share" data-share hidden disabled>Share</button><span data-call-small></span><span class="stages" data-stages role="group" aria-label="Stage">${stageButtons}</span><small data-credit hidden>Unofficial fan project. Subaru didn't ask for this.</small></div>
     <div class="hud keys"><span>Arrows or WASD · drive</span><span>Space · handbrake</span><span>R · restart</span><span>C · camera</span><span>L · lights</span><span>M · sound</span><span>V · co-driver</span><span>G · ghost</span><span>1–3 · stage</span><span>Esc · leave</span></div>
     <div class="turn" data-turn><b>Turn your phone sideways</b><span>The stage is drawn for landscape</span></div>`;
   root.prepend(world.canvas);
@@ -286,8 +288,45 @@ export function startRally(host: RallyHost): Rally {
   let bestEl: HTMLElement = targetsEl;
 
   // The top ten for the stage, and the name box on the finish panel. When the box closes the keys come back to the game.
+  // This season's times on the shared top ten also set the medal times (`paceTargets`): no request of their own.
   let shared: Board = openBoard(current.def.id);
-  const openHud = (): BoardHud => createBoardHud(side, callEl, () => root.focus(), shared, touch);
+  let seasonTimes: number[] = [];
+  const openHud = (): BoardHud =>
+    createBoardHud(side, callEl, () => root.focus(), shared, touch, (entries, online) => {
+      seasonTimes = online ? entries.map((entry) => entry.time) : [];
+    });
+  /** The medal times for the run on the end screen: set at the finish, from the season's pace or the stage's own. */
+  let medalTimes: MedalTimes = { targets: current.def.targets, benchmark: null };
+
+  // --- The share card: drawn as the run finishes, so a tap can hand it straight to the share sheet
+  const shareEl = part<HTMLButtonElement>('[data-share]');
+  let card: { about: Card; picture: Blob | null } | null = null;
+  const prepareCard = (about: Card): void => {
+    const pending = { about, picture: null as Blob | null };
+    card = pending;
+    shareEl.disabled = true;
+    shareEl.textContent = 'Share';
+    drawCard(about, root).then(
+      (picture) => {
+        if (card !== pending) return;
+        pending.picture = picture;
+        shareEl.disabled = picture === null;
+      },
+      (error) => console.warn('The share card could not be drawn:', error),
+    );
+  };
+  shareEl.addEventListener('click', () => {
+    const ready = card;
+    root.focus();
+    if (!ready?.picture) return;
+    const url = `${location.origin}${location.pathname}`;
+    shareCard(ready.picture, ready.about, url).then(
+      (how) => {
+        if (card === ready && how !== 'cancelled') shareEl.textContent = how === 'shared' ? 'Shared' : 'Saved';
+      },
+      (error) => console.warn('The share card could not be shared:', error),
+    );
+  });
   let board = openHud();
 
   // The colours are read from the game's own screen, which carries the time of day.
@@ -416,13 +455,19 @@ export function startRally(host: RallyHost): Rally {
     root.focus();
   });
 
+  /** The times to beat on the end screen, each with what it means, and where they come from. */
+  const showTargets = (): void => {
+    const each = MEDALS.map((medal) => `<i data-medal="${medal}">${capital(medal)} ${formatTime(medalTimes.targets[medal])}<small>${medalNote(medal, medalTimes)}</small></i>`);
+    targetsEl.innerHTML = `${each.join('')}<i data-best></i><i class="pace">${paceLine(medalTimes, formatTime)}</i>`;
+    medalEls = Array.from(targetsEl.querySelectorAll<HTMLElement>('[data-medal]'));
+    bestEl = targetsEl.querySelector<HTMLElement>('[data-best]')!;
+  };
+
   /** The stage's own words on the screen: its name, and its times to beat. */
   const labelStage = (): void => {
     const { def } = current;
     stageName.textContent = `${def.name} · Time`;
-    targetsEl.innerHTML = `${MEDALS.map((medal) => `<i data-medal="${medal}">${capital(medal)} ${formatTime(def.targets[medal])}</i>`).join('')}<i data-best></i>`;
-    medalEls = Array.from(targetsEl.querySelectorAll<HTMLElement>('[data-medal]'));
-    bestEl = targetsEl.querySelector<HTMLElement>('[data-best]')!;
+    showTargets();
     for (const button of stagesEl.querySelectorAll<HTMLElement>('[data-stage]')) button.setAttribute('aria-pressed', String(button.dataset.stage === def.id));
   };
   labelStage();
@@ -448,6 +493,9 @@ export function startRally(host: RallyHost): Rally {
     resize();
     drawMap();
     board.dispose();
+    seasonTimes = [];
+    medalTimes = { targets: current.def.targets, benchmark: null };
+    card = null;
     shared = openBoard(current.def.id);
     board = openHud();
     best = readBest();
@@ -996,11 +1044,11 @@ export function startRally(host: RallyHost): Rally {
     resetEl.hidden = !canReset(trial);
 
     // The end screen: the medal, a line for the result, the times to beat, and the fan project note.
-    const { targets } = current.def;
+    const { targets } = medalTimes;
     const medal = finished ? medalFor(trial.time, targets) : null;
     for (const name of MEDALS) callBig.classList.toggle(name, medal === name);
     for (const el of medalEls) el.classList.toggle('won', el.dataset.medal === medal);
-    verdictEl.hidden = targetsEl.hidden = credit.hidden = !finished;
+    verdictEl.hidden = targetsEl.hidden = credit.hidden = shareEl.hidden = !finished;
     if (finished) {
       const line = medal ? `${capital(medal)} · ${verdict(trial.time, targets)}` : verdict(trial.time, targets);
       setText(verdictEl, trial.penalty ? `${line} · ${trial.penalty} s of penalties` : line);
@@ -1055,6 +1103,10 @@ export function startRally(host: RallyHost): Rally {
       feel(now / 1000);
       if (was === 'running') record(recorder, trial.time, { ...trial.car, height: trial.height });
       if (was === 'running' && trial.phase === 'finished') {
+        // The medal times are set now, from the season's pace as it stood before this run went on the board.
+        medalTimes = paceTargets(seasonTimes, current.def.targets);
+        showTargets();
+        prepareCard({ stage: current.def.name, time: trial.time, medal: medalFor(trial.time, medalTimes.targets), penalty: trial.penalty, plate: PLATE_WORD, season: SEASON });
         const run = finishGhost(recorder, current.def.id, trial.time);
         // The run goes to the shared board with its replay, so it can be raced if it becomes the record.
         board.finished(trial.time, run ? packReplay(run) : null);

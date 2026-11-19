@@ -28,6 +28,46 @@ export function medalFor(time: number, targets: Targets = TARGETS): Medal | null
   return MEDALS.find((medal) => time <= targets[medal]) ?? null;
 }
 
+/**
+ * Medals that follow the drivers. Each stage's benchmark, "the pace", is the third-fastest time of the current
+ * season on the shared board (the fastest, should there be fewer than three). Gold is within 3% of it, silver
+ * within 8%, bronze within 15%. Until the stage has `least` times this season, its fixed `targets` stand instead.
+ */
+export const PACE = { rank: 3, least: 5, within: { gold: 0.03, silver: 0.08, bronze: 0.15 } } as const;
+
+/** The times to beat for a run, and where they came from: the season's pace (`benchmark`), or the stage's fixed times (null). */
+export interface MedalTimes {
+  targets: Targets;
+  benchmark: number | null;
+}
+
+/**
+ * The medal times for a stage from this season's times on the shared board (any order; the top ten is
+ * plenty, as only the third-fastest counts and the count only has to reach `PACE.least`). With too few
+ * times, or none to be had, the stage's `fixed` times. Each time to beat is cut to the hundredth, the
+ * way the clock shows it, so a time that reads the same as the target earns the medal.
+ */
+export function paceTargets(times: readonly number[], fixed: Targets): MedalTimes {
+  const kept = times.filter(validTime).sort((a, b) => a - b);
+  if (kept.length < PACE.least) return { targets: fixed, benchmark: null };
+  const benchmark = kept[Math.min(PACE.rank, kept.length) - 1]!;
+  const cut = (share: number) => Math.floor(benchmark * (1 + share) * 100 + 1e-6) / 100;
+  return { targets: { gold: cut(PACE.within.gold), silver: cut(PACE.within.silver), bronze: cut(PACE.within.bronze) }, benchmark };
+}
+
+/** What a medal's time means, for the end screen: "Gold: within 3% of the pace", or "Gold: the stage's set time". */
+export function medalNote(medal: Medal, times: MedalTimes): string {
+  const name = medal.charAt(0).toUpperCase() + medal.slice(1);
+  if (times.benchmark === null) return `${name}: the stage's set time`;
+  return `${name}: within ${Math.round(PACE.within[medal] * 100)}% of the pace`;
+}
+
+/** One line under the medal times, saying where they come from. */
+export function paceLine(times: MedalTimes, format: (seconds: number) => string): string {
+  if (times.benchmark === null) return `Set times until the stage has ${PACE.least} this season`;
+  return `The pace: ${format(times.benchmark)}, third-fastest this season`;
+}
+
 const LINES: Record<Medal | 'slow', string> = {
   gold: "Sawa. That's a stage time.",
   silver: 'Tidy. Gold is close.',
