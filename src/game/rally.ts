@@ -25,15 +25,23 @@ import { paceNotes, shownAt, type Note } from './notes';
 import { caption, cautionSvg, signSvg, tone } from './paceIcons';
 import { scatter } from './scenery';
 import { MEDALS, formatGap, keepBest, medalFor, parseBestRun, sectorGap, sectorTimes, verdict, type BestRun } from './splits';
-import { canReset, creaturesAt, formatTime, locate, newTrial, resetToRoad, stepTrial, type Stage, type Trial } from './stage';
+import { canReset, creaturesAt, formatTime, locate, newTrial, resetToRoad, stepTrial, worldTime, type Stage, type Trial } from './stage';
 import { STAGES, buildStageOf, moveRenamed, stageById, type StageDef } from './stages';
 import { STEERING_NAMES, buzz, buzzFor, createTouchPads, nextSteering, readSteering, tiltSteer, type Steering, type TouchPads } from './touch';
 import { createVoice } from './voice';
 import { UNIT, createWorld, type Puff, type World } from './world';
+import { HIT } from './hazards';
+import { bearingInModel, blendOrbit, farShown, introCar, introDone, orbitOf, revealReach, swung, viewOf, type Orbit } from './intro';
+import type { Handoff } from '../scene/handoff';
 
 export interface RallyHost {
   /** The engine the exhaust synth listens to. The game sets its revs from the road speed. */
   engine: EngineState;
+  /**
+   * The drawing's own car, handed over as it drives off the sheet, with where the drawing's camera stood. The
+   * stage drives this car, not one of its own, and opens on the drawing's shot (see `intro.ts`). Given back on leaving.
+   */
+  handoff?: Handoff | null;
   /** Turn the engine sound on or off, the same as the dock's button. */
   toggleSound(): void;
   /** Called when the player leaves. */
@@ -189,7 +197,7 @@ export function startRally(host: RallyHost): Rally {
   const sectors = stage.checkpoints.length + 1;
   root.innerHTML = `
     <div class="way"></div>
-    <div class="hud clock"><span data-stage-name></span><b data-time>0:00.00</b></div>
+    <div class="hud clock"><span data-stage-name></span><b data-time>0:00.00</b><em class="penalty" data-penalty hidden></em></div>
     <div class="hud splits" data-splits>${Array.from({ length: sectors }, (_, i) => `<span data-split><i>Sector ${i + 1}</i><u>–</u><em></em></span>`).join('')}</div>
     <div class="pace" data-pace hidden><div class="note now" data-pace-now></div><div class="note then" data-pace-then></div></div>
     <p class="sr" aria-live="polite" data-pace-said></p>
@@ -224,6 +232,7 @@ export function startRally(host: RallyHost): Rally {
   const [sectorEl, sectorName, sectorTime, sectorGapEl, wrongEl] = [part('[data-sector]'), part('[data-sector-name]'), part('[data-sector-time]'), part('[data-sector-gap]'), part('[data-wrongway]')];
   const [gearEl, speedEl, codriverEl] = [part('[data-gear]'), part('[data-speed]'), part<HTMLButtonElement>('[data-codriver]')];
   const resetEl = part<HTMLButtonElement>('[data-reset]');
+  const penaltyEl = part('[data-penalty]');
   // On a phone only the clock, the next call, a small rev meter and the controls stay on the road. The
   // sectors, the map, the co-driver switch and the tools wait in a drawer behind a button in the corner.
   const drawer = part('[data-drawer]');
@@ -334,7 +343,22 @@ export function startRally(host: RallyHost): Rally {
   /** Which calls are drawn at the top, so the icons are only drawn again when they change. */
   let shownCalls = '';
   let ducked = false;
+  /** How hard the camera is shaking after a hit, 1 at the moment of it, dying away. */
+  let shake = 0;
+  /**
+   * The way in from the drawing sheet, while it lasts: seconds into it, the drawing's camera as seen from the
+   * car, its lens and framing, and the pace the car left the sheet at. Null once the count has started.
+   */
+  let intro: { time: number; from: Orbit; fov: number; shift: readonly [number, number]; pace: number; at: { x: number; y: number } } | null = null;
+  const endIntro = (): void => {
+    if (!intro) return;
+    intro = null;
+    root.classList.remove('intro');
+    world.setReveal(Infinity);
+  };
   const restart = (): void => {
+    endIntro();
+    shake = 0;
     trial = newTrial(stage);
     trial.index = locate(stage, trial.car.x, trial.car.y, trial.index).index;
     chase = newChase(trial.car, rigFor(cameraMode));
@@ -418,6 +442,8 @@ export function startRally(host: RallyHost): Rally {
     world.canvas.remove();
     current = next;
     ({ stage, world, notes } = current);
+    // The drawing's car goes with the player to the new stage.
+    if (host.handoff) world.adoptCar(host.handoff.car);
     root.prepend(world.canvas);
     resize();
     drawMap();
@@ -765,14 +791,35 @@ export function startRally(host: RallyHost): Rally {
    * Where the ghost is now: on the run's clock, gone a little after it finishes. Once the player is over the
    * line the clock stops, and a ghost stood still on the road would only be in the way, so it goes too.
    */
-  const ghostNow = () => (ghostMode !== 'off' && racing && trial.phase !== 'finished' && trial.time <= racing.time + GHOST_LINGER ? ghostAt(racing, trial.time) : null);
+  const ghostNow = () => (ghostMode !== 'off' && racing && !intro && trial.phase !== 'finished' && trial.time <= racing.time + GHOST_LINGER ? ghostAt(racing, trial.time) : null);
 
   const draw = (): void => {
     const { forward } = carSpeeds(trial.car);
     const pitch = (calm ? 0 : dive) - tilt;
     const mode = cameraMode;
     const inCar = onBoard(mode);
-    const { eye, target } = inCar ? mountView(mode, trial.car, trial.height, pitch) : chaseView(chase, trial.car, rigFor(cameraMode));
+    const view = inCar ? mountView(mode, trial.car, trial.height, pitch) : chaseView(chase, trial.car, rigFor(cameraMode));
+    // The chase camera stands on the road behind the car, so a jump is seen from the ground. One on the car rides with it.
+    let eye = inCar ? view.eye : { ...view.eye, height: view.eye.height + groundAt(stage.hazards, trial.progress - chase.reach) };
+    let target = inCar ? view.target : { ...view.target, height: view.target.height + trial.height * 0.8 };
+    let fov = inCar ? mountFov(mode, forward, calm) : chaseFov(forward, calm);
+    let shift: readonly [number, number] | undefined;
+    let camera: CameraMode = cameraMode;
+    if (intro) {
+      // On the way in the camera swings from where the drawing had it, round the car, to where it will be for the run.
+      const share = swung(intro.time);
+      ({ eye, target } = viewOf(trial.car, blendOrbit(intro.from, orbitOf(trial.car, { eye, target }), share)));
+      fov = intro.fov + (fov - intro.fov) * share;
+      shift = [intro.shift[0] * (1 - share), intro.shift[1] * (1 - share)];
+      // Outside the car until the very end, so a cockpit camera does not hide the body mid-swing.
+      if (share < 0.9) camera = 'close';
+    }
+    if (shake > 0.01 && !calm) {
+      // A jolt: the camera knocked about, more at first.
+      const jolt = () => (random() - 0.5) * shake * 0.45;
+      eye = { x: eye.x + jolt(), y: eye.y + jolt(), height: eye.height + jolt() };
+      target = { x: target.x + jolt(), y: target.y + jolt(), height: target.height + jolt() * 0.5 };
+    }
     world.draw({
       car: trial.car,
       steer,
@@ -781,16 +828,39 @@ export function startRally(host: RallyHost): Rally {
       lean: calm ? 0 : lean,
       lift: trial.height,
       air: trial.airborne ? Math.max(0, trial.height - groundAt(stage.hazards, trial.progress)) : 0,
-      animals: creaturesAt(stage, trial.time, trial.woke),
+      // The animals keep the stage's own clock, which a penalty does not move on.
+      animals: creaturesAt(stage, worldTime(trial), trial.woke, trial.knocked),
       lamps: lampStrength(light, lightsOn),
-      // The chase camera stands on the road behind the car, so a jump is seen from the ground. One on the car rides with it.
-      eye: inCar ? eye : { ...eye, height: eye.height + groundAt(stage.hazards, trial.progress - chase.reach) },
-      target: inCar ? target : { ...target, height: target.height + trial.height * 0.8 },
-      fov: inCar ? mountFov(mode, forward, calm) : chaseFov(forward, calm),
-      camera: cameraMode,
+      eye,
+      target,
+      fov,
+      camera,
+      shift,
       dust,
       ghost: ghostNow(),
     });
+  };
+
+  /** An animal knocked aside: a cloud, a jolt, a buzz (in `feel`), the co-driver, and the penalty in the middle of the screen. */
+  const onHit = (): void => {
+    const hit = trial.knocked[trial.knocked.length - 1];
+    if (!hit) return;
+    burst(30, 6, 0);
+    shake = 1;
+    // The body takes the blow: the nose dips, more for a big animal.
+    dive += 0.08 * HIT.cost[hit.kind];
+    voice.say('Pole sana!', { urgent: true });
+    setText(paceSaid, 'Pole sana!');
+    if (trial.phase !== 'running') return;
+    setText(sectorName, 'Penalty');
+    setText(sectorTime, `+${HIT.penalty} s`);
+    setText(sectorGapEl, 'Pole sana!');
+    sectorEl.classList.remove('ahead');
+    sectorEl.classList.add('behind');
+    sectorEl.hidden = true;
+    void sectorEl.offsetWidth;
+    sectorEl.hidden = false;
+    flash = SECTOR_FLASH;
   };
 
   const setText = (el: HTMLElement, text: string): void => {
@@ -891,6 +961,8 @@ export function startRally(host: RallyHost): Rally {
 
   const showReadouts = (): void => {
     timeEl.textContent = formatTime(trial.time);
+    penaltyEl.hidden = trial.penalty === 0;
+    setText(penaltyEl, trial.penalty ? `Incl. +${trial.penalty} s penalty` : '');
     wayEl.style.width = `${(Math.min(1, Math.max(0, (trial.progress - stage.startAt) / (stage.finishAt - stage.startAt))) * 100).toFixed(1)}%`;
     showSplits();
     showCalls();
@@ -930,7 +1002,8 @@ export function startRally(host: RallyHost): Rally {
     for (const el of medalEls) el.classList.toggle('won', el.dataset.medal === medal);
     verdictEl.hidden = targetsEl.hidden = credit.hidden = !finished;
     if (finished) {
-      setText(verdictEl, medal ? `${capital(medal)} · ${verdict(trial.time, targets)}` : verdict(trial.time, targets));
+      const line = medal ? `${capital(medal)} · ${verdict(trial.time, targets)}` : verdict(trial.time, targets);
+      setText(verdictEl, trial.penalty ? `${line} · ${trial.penalty} s of penalties` : line);
       setText(bestEl, best ? `Your best ${formatTime(best.time)}` : '');
     }
   };
@@ -952,7 +1025,19 @@ export function startRally(host: RallyHost): Rally {
       return;
     }
     bank += dt;
-    while (bank >= STEP) {
+    shake *= Math.exp(-dt * 6);
+    if (intro) {
+      // The way in: the car rolls up to the line as the stage comes through the sheet, and nothing is driven yet.
+      intro.time += dt;
+      const before = { forward: carSpeeds(trial.car).forward, heading: trial.car.heading };
+      trial.car = introCar(stage, intro.time, intro.pace);
+      settleBody(before, Math.max(dt, 1e-3));
+      raiseDust(dt);
+      world.setReveal(revealReach(intro.time), intro.at, farShown(intro.time));
+      if (introDone(intro.time)) endIntro();
+      bank = 0;
+    }
+    while (!intro && bank >= STEP) {
       bank -= STEP;
       const was = trial.phase;
       const before = { forward: carSpeeds(trial.car).forward, heading: trial.car.heading };
@@ -962,6 +1047,7 @@ export function startRally(host: RallyHost): Rally {
       chase = stepChase(chase, trial.car, STEP, rigFor(cameraMode));
       if (trial.event === 'splash') burst(60, 9, 1);
       else if (trial.event === 'knock') burst(26, 6, 0);
+      else if (trial.event === 'hit') onHit();
       else if (trial.event === 'land') burst(34, 5, 0);
       else if (trial.event === 'scrape' && random() < 0.2) burst(1, 3, 0);
       else if ((trial.event === 'rattle' || trial.event === 'rumble') && random() < 0.25) burst(1, 2, 0);
@@ -1016,13 +1102,37 @@ export function startRally(host: RallyHost): Rally {
       document.exitFullscreen().catch(() => undefined);
     }
     root.remove();
+    // The car goes back to the drawing it came from.
+    world.releaseCar();
+    host.handoff?.giveBack();
     host.onExit();
   }
 
-  // Cut straight in: the stage goes on the page and its first frame is drawn in the same breath. It has to
-  // be on the page first, because the time of day's colours are read from it.
+  // The stage goes on the page and its first frame is drawn in the same breath. It has to be on the page
+  // first, because the time of day's colours are read from it.
   document.body.append(root);
   restart();
+  const handoff = host.handoff;
+  if (handoff) {
+    // The drawing's own car, from here on.
+    world.adoptCar(handoff.car);
+    rolled = handoff.rolled * UNIT;
+    if (!calm) {
+      // One shot from the drawing: the stage opens on the drawing's camera, with the sheet showing through.
+      const start = introCar(stage, 0, handoff.speed * UNIT);
+      intro = {
+        time: 0,
+        from: { eye: bearingInModel(handoff.eye, UNIT), target: bearingInModel(handoff.target, UNIT) },
+        fov: handoff.fov,
+        shift: handoff.shift,
+        pace: handoff.speed * UNIT,
+        at: { x: start.x, y: start.y },
+      };
+      trial.car = start;
+      root.classList.add('intro');
+      world.setReveal(0, intro.at, 0);
+    }
+  }
   draw();
   showReadouts();
   root.focus();

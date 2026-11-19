@@ -296,22 +296,26 @@ describe('the zebra', () => {
     });
   });
 
-  it('stop a car that drives into one', () => {
+  it('are knocked aside by a car that drives into one, and slow it', () => {
     // Find a moment when a zebra is in the middle of the road, and send the car at it.
     let when = 0;
     while (!zebraAt(HAZARDS, when).some((zebra) => Math.abs(zebra.across) < 0.3)) when += 0.05;
     const target = zebraAt(HAZARDS, when + 0.5).reduce((a, b) => (Math.abs(a.across) < Math.abs(b.across) ? a : b));
     const trial = launch(stage, target.along - 15, 30, target.across);
     trial.time = when;
-    let knocked = false;
+    let hit = false;
     for (let t = 0; t < 1; t += DT) {
       stepTrial(stage, trial, { throttle: 0, brake: 0, steer: 0 }, DT);
-      knocked ||= trial.event === 'knock';
-      for (const zebra of herdAt(stage, trial.time)) {
+      hit ||= trial.event === 'hit';
+      // No zebra the car has not hit is ever inside it.
+      const struck = new Set(trial.knocked.map((k) => k.id));
+      herdAt(stage, trial.time - trial.penalty).forEach((zebra, i) => {
+        if (struck.has(`z${i}`)) return;
         expect(Math.hypot(trial.car.x - zebra.x, trial.car.y - zebra.y)).toBeGreaterThan(r + CAR_RADIUS - 0.1);
-      }
+      });
     }
-    expect(knocked).toBe(true);
-    expect(speedOf(trial)).toBeLessThan(15);
+    expect(hit).toBe(true);
+    expect(trial.knocked[0]!.kind).toBe('zebra');
+    expect(speedOf(trial)).toBeLessThan(30 * 0.7);
   });
 });

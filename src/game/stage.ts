@@ -9,6 +9,7 @@ import {
   ANIMAL_SIZE,
   CAR_RADIUS,
   HAZARDS,
+  HIT,
   KNOCK,
   LANDING,
   OSTRICH_WAKE,
@@ -19,14 +20,16 @@ import {
   branchParts,
   groundAt,
   inAnyWater,
+  knockedPose,
   patchAt,
   roomAt,
   stepFlight,
   surfaceAt,
   underAt,
   zebraAt,
+  type AnimalKind,
   type Hazards,
-  type Species,
+  type Knocked,
 } from './hazards';
 import { checkpointsOf } from './splits';
 
@@ -161,21 +164,82 @@ export function placeAt(stage: Road, along: number, across: number): Pose {
 
 /** An animal on the ground, with the way it is facing. */
 export interface Creature extends Obstacle {
-  kind: 'zebra' | Species;
+  kind: AnimalKind;
+  /** Which animal it is, the same on every run: `z` and its place in the herd for a zebra, otherwise its group and place in it. */
+  id: string;
   heading: number;
+  /** Knocked aside by the car: it can no longer be hit, and it may be over on its side (`roll`) or off the ground (`lift`). */
+  down?: boolean;
+  roll?: number;
+  lift?: number;
 }
 
 /**
  * Every animal on the stage, as places on the ground, `time` seconds into the run: the zebra and the rest.
- * `woke` is the run's own record of when each group took fright (see `Trial.woke`).
+ * `woke` is the run's own record of when each group took fright (see `Trial.woke`), and `knocked` the ones
+ * the car has hit (`Trial.knocked`): those are where their tumble has taken them, marked `down`.
  */
-export function creaturesAt(stage: Stage, time: number, woke: readonly (number | null)[] = []): Creature[] {
-  const zebra: Creature[] = herdAt(stage, time).map((z) => ({ ...z, kind: 'zebra' }));
+export function creaturesAt(stage: Stage, time: number, woke: readonly (number | null)[] = [], knocked: readonly Knocked[] = []): Creature[] {
+  const zebra: Creature[] = herdAt(stage, time).map((z, i) => ({ ...z, kind: 'zebra', id: `z${i}` }));
   const rest = animalsAt(stage.hazards, time, woke, stage.halfWidth).map((spot): Creature => {
     const { x, y, heading } = placeAt(stage, spot.along, spot.across);
-    return { kind: spot.kind, x, y, r: ANIMAL_SIZE[spot.kind], heading: heading + spot.facing };
+    return { kind: spot.kind, id: spot.id, x, y, r: ANIMAL_SIZE[spot.kind], heading: heading + spot.facing };
   });
-  return [...zebra, ...rest];
+  const struck = new Map(knocked.map((k) => [k.id, k]));
+  return [...zebra, ...rest].map((animal) => {
+    const k = struck.get(animal.id);
+    if (!k) return animal;
+    const pose = knockedPose(k, time);
+    return { ...animal, x: pose.x, y: pose.y, heading: pose.heading, roll: pose.roll, lift: pose.lift, down: true };
+  });
+}
+
+/**
+ * The car runs into an animal at speed. The car is put back outside it and loses a share of its speed for
+ * the animal's size (`HIT.cost`); the animal is thrown the way the car was going and away from it, to come
+ * to rest beside the road (see `knockedPose`). `near` is where on the road to look from, as in `locate`.
+ */
+export function knockAnimal(stage: Stage, car: CarState, animal: Creature, time: number, near: number): { car: CarState; knocked: Knocked } {
+  const reach = animal.r + CAR_RADIUS;
+  const [dx, dy] = [animal.x - car.x, animal.y - car.y];
+  const gap = Math.hypot(dx, dy);
+  // From the car to the animal; dead centre, straight ahead.
+  const [nx, ny] = gap > 1e-6 ? [dx / gap, dy / gap] : [Math.cos(car.heading), Math.sin(car.heading)];
+  const speed = Math.hypot(car.vx, car.vy);
+  const keep = 1 - HIT.cost[animal.kind];
+  const hit: CarState = { ...car, x: animal.x - nx * reach, y: animal.y - ny * reach, vx: car.vx * keep, vy: car.vy * keep };
+
+  // Thrown along the car's way and out from it: further the lighter it is and the faster the car.
+  const [wx, wy] = speed > 1e-6 ? [car.vx / speed, car.vy / speed] : [nx, ny];
+  const [tx, ty] = [wx * 0.6 + nx * 0.8, wy * 0.6 + ny * 0.8];
+  const tl = Math.hypot(tx, ty) || 1;
+  const thrown = Math.min(16, speed * (1 - HIT.cost[animal.kind]) * 0.35 + 2);
+  let rest: [number, number] = [animal.x + (tx / tl) * thrown, animal.y + (ty / tl) * thrown];
+  // It always ends up beside the road, never lying in it: off whichever side it is nearer.
+  const at = locate(stage, rest[0], rest[1], near);
+  const side = at.across >= 0 ? 1 : -1;
+  const [rx, ry] = at.right;
+  const clear = stage.halfWidth + 1.5 + animal.r;
+  if (Math.abs(at.across) < clear) {
+    const push = side * clear - at.across;
+    rest = [rest[0] + rx * push, rest[1] + ry * push];
+  }
+  // Which way it turns as it goes: the way the car's nose would swing it.
+  const cross = wx * ny - wy * nx;
+  return {
+    car: hit,
+    knocked: {
+      kind: animal.kind,
+      id: animal.id,
+      at: time,
+      from: [animal.x, animal.y],
+      rest,
+      away: [rx * side, ry * side],
+      heading: animal.heading,
+      spin: (cross >= 0 ? 1 : -1) * (Math.PI * 0.6 + Math.min(1, speed / 30) * Math.PI * 0.6),
+      hop: Math.min(1.4, 0.25 + speed * 0.035) * (animal.kind === 'giraffe' ? 0.5 : 1),
+    },
+  };
 }
 
 /** The zebra, as places on the ground, `time` seconds into the run. `heading` is the way each is walking. */
@@ -267,9 +331,22 @@ export interface Trial {
   wet: boolean;
   /** The clock at each checkpoint passed so far. */
   splits: number[];
-  /** What happened on the last step, for the dust and the spray: and `rattle` over a cattle grid, `rumble` on a rumble strip, `reset` when put back on the road. */
-  event: 'splash' | 'knock' | 'scrape' | 'land' | 'rattle' | 'rumble' | 'reset' | null;
+  /** The animals the car has hit, in order, each knocked aside. */
+  knocked: Knocked[];
+  /** Seconds of penalty put on the clock this run, `HIT.penalty` for each animal hit. They are already in `time`. */
+  penalty: number;
+  /**
+   * What happened on the last step, for the dust and the spray: and `rattle` over a cattle grid, `rumble` on a
+   * rumble strip, `reset` when put back on the road, `hit` when an animal was knocked aside (the last of `knocked`).
+   */
+  event: 'splash' | 'knock' | 'scrape' | 'land' | 'rattle' | 'rumble' | 'reset' | 'hit' | null;
 }
+
+/**
+ * The stage's own clock: the run's, less its penalties. The animals walk by this, so a penalty on the clock
+ * does not make them all jump.
+ */
+export const worldTime = (trial: Pick<Trial, 'time' | 'penalty'>): number => trial.time - trial.penalty;
 
 /** Off the road and slower than `speed` m/s for `seconds`, the car is stuck, and may be put back on the road. */
 export const STUCK = { speed: 3, seconds: 2 } as const;
@@ -293,6 +370,8 @@ export function newTrial(stage: Stage): Trial {
     aloft: 0,
     wet: false,
     splits: [],
+    knocked: [],
+    penalty: 0,
     event: null,
   };
 }
@@ -342,17 +421,33 @@ export function stepTrial(stage: Stage, trial: Trial, input: DriveInput, dt: num
       const keep = Math.exp(-WATER_DRAG * dt);
       car = { ...car, vx: car.vx * keep, vy: car.vy * keep };
     }
-    // Only the animals near the car are looked at. None of them ends a run: they knock the car aside and slow it.
+    // Only the animals near the car are looked at. None of them ends a run: they are knocked aside, and slow the car.
     const near = (at: number) => Math.abs(trial.progress - at) < 60;
-    const animals = hazards.zebra.count && near(hazards.zebra.at) ? herdAt(stage, trial.time) : [];
-    if ((hazards.animals ?? []).some((group) => near(group.at) || (group.kind === 'ostrich' && trial.progress > group.at && trial.progress < group.to + 20))) {
-      animals.push(...creaturesAt({ ...stage, hazards: { ...hazards, zebra: { ...hazards.zebra, count: 0 } } }, trial.time, trial.woke));
-    }
-    for (const thing of [...stage.rocks, ...stage.branches, ...animals]) {
+    const close = (hazards.zebra.count > 0 && near(hazards.zebra.at)) ||
+      (hazards.animals ?? []).some((group) => near(group.at) || (group.kind === 'ostrich' && trial.progress > group.at && trial.progress < group.to + 20));
+    const animals = close ? creaturesAt(stage, worldTime(trial), trial.woke, trial.knocked).filter((animal) => !animal.down) : [];
+    for (const thing of [...stage.rocks, ...stage.branches]) {
       const hit = bump(car, thing);
       if (!hit) continue;
       car = hit.car;
       if (hit.hard) trial.event = 'knock';
+    }
+    for (const animal of animals) {
+      if (Math.hypot(car.x - animal.x, car.y - animal.y) >= animal.r + CAR_RADIUS) continue;
+      // At walking pace the car only nudges it, as it would a rock.
+      if (Math.hypot(car.vx, car.vy) < HIT.slowest) {
+        car = bump(car, animal)?.car ?? car;
+        continue;
+      }
+      const hit = knockAnimal(stage, car, animal, worldTime(trial), trial.index);
+      car = hit.car;
+      trial.knocked.push(hit.knocked);
+      trial.event = 'hit';
+      if (trial.phase === 'running') {
+        // The penalty goes straight on the clock, so the splits, the medal and the ghost's recording all carry it.
+        trial.time += HIT.penalty;
+        trial.penalty += HIT.penalty;
+      }
     }
     trial.car = car;
   }
@@ -393,7 +488,7 @@ export function stepTrial(stage: Stage, trial: Trial, input: DriveInput, dt: num
 
   // Ostrich take fright as the car comes up behind them, and run.
   (hazards.animals ?? []).forEach((group, g) => {
-    if (group.kind === 'ostrich' && trial.woke[g] === null && trial.phase === 'running' && found.along >= group.at - OSTRICH_WAKE) trial.woke[g] = trial.time;
+    if (group.kind === 'ostrich' && trial.woke[g] === null && trial.phase === 'running' && found.along >= group.at - OSTRICH_WAKE) trial.woke[g] = worldTime(trial);
   });
 
   // Off the road and going nowhere: after a moment, the car may be put back on it.

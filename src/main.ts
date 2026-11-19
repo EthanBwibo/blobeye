@@ -82,6 +82,7 @@ const rally = initRallyGate({
     scroll.lock();
   },
   duckEngine: (on) => synth.duck(on),
+  lendCar: () => scene?.lendCar() ?? null,
   onExit() {
     playing = false;
     scene?.park();
@@ -114,8 +115,8 @@ function frame(now: number): void {
     stepEngine(state, dt, reducedMotion);
     scene?.render(dt, sheet, currentXray());
     updateReadouts(state, scene?.firing ?? [], cylinderLabels);
-    // On the Safari sheet the car drives off, and the stage takes its place.
-    rally.update(Math.abs(sheet - DRIVE_OFF_SHEET) < 0.03, sheet < DRIVE_OFF_SHEET - 0.1, scene?.carGone ?? false);
+    // On the Safari sheet the car pulls away, and the stage takes it, in one shot.
+    rally.update(Math.abs(sheet - DRIVE_OFF_SHEET) < 0.03, sheet < DRIVE_OFF_SHEET - 0.1, scene?.carLeaving ?? false);
   }
   requestAnimationFrame(frame);
 }

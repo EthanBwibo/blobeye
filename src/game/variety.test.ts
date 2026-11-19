@@ -307,14 +307,14 @@ describe('the animals', () => {
   it('slow a car that hits one, and never end the run', () => {
     const stage = straight({ animals: [{ kind: 'giraffe', at: 400, count: 1, gap: 1, span: 0.01, pace: 0 }] });
     const trial = running(stage, 370, 30);
-    let knocked = false;
+    let hit = false;
     for (let t = 0; t < 2; t += DT) {
       stepTrial(stage, trial, GO, DT);
-      knocked ||= trial.event === 'knock';
+      hit ||= trial.event === 'hit';
     }
-    expect(knocked).toBe(true);
+    expect(hit).toBe(true);
     expect(trial.phase).toBe('running');
-    expect(trial.progress).toBeGreaterThan(400 - ANIMAL_SIZE.giraffe - 3);
+    expect(trial.progress).toBeGreaterThan(400 + ANIMAL_SIZE.giraffe);
   });
 
   it('are all on the ground for the drawing, with the zebra', () => {

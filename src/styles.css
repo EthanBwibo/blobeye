@@ -115,7 +115,9 @@ body{
 #nogl{position:fixed; inset:0; display:grid; place-items:center; z-index:0; color:var(--ink-soft);
   font-family:var(--f-mono); font-size:13px; text-align:center; padding:24px}
 
-main{position:relative; z-index:1}
+main{position:relative; z-index:1; transition:opacity .45s ease}
+/* The Safari stage taking over: the panels and the dock fade, leaving the sheet's grid for the stage to dissolve into murram */
+body.rally-on main, body.rally-on #dock{opacity:0}
 .view{
   min-height:100vh; min-height:100svh;
   display:flex; align-items:center;
@@ -185,7 +187,7 @@ p{margin:0; max-width:60ch}
   position:fixed; left:0; right:0; bottom:0; z-index:5;
   background:var(--paper-2); border-top:1.5px solid var(--ink);
   padding:10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
-  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap; transition:opacity .45s ease;
 }
 button{font:inherit; color:inherit; cursor:pointer; -webkit-tap-highlight-color:transparent}
 .btn{

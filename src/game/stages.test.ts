@@ -23,6 +23,9 @@ function autopilot(stage: Stage, trial: Trial): DriveInput {
   return { throttle: speed < safe ? 1 : 0, brake: speed > safe + 4 ? 1 : 0, steer: Math.max(-1, Math.min(1, error * 3)) };
 }
 
+/** The stage with its animals taken off: the scripted driver cannot steer round them, and a tidy driver does. */
+const noAnimals = (stage: Stage): Stage => ({ ...stage, hazards: { ...stage.hazards, zebra: { ...stage.hazards.zebra, count: 0 }, animals: [] } });
+
 const byId = Object.fromEntries(STAGES.map((def) => [def.id, { def, stage: buildStageOf(def) }]));
 
 describe('the stages', () => {
@@ -131,10 +134,11 @@ describe.each(STAGES.map((def) => [def.name, def.id] as const))('%s', (_, id) =>
   });
 
   it('takes a tidy driver about a minute or a little more, on the road, for silver with gold just out of reach', () => {
-    const trial = newTrial(stage);
+    const tidy = noAnimals(stage);
+    const trial = newTrial(tidy);
     let offRoad = 0;
     for (let i = 0; i < 120 * 150 && trial.phase !== 'finished'; i++) {
-      stepTrial(stage, trial, autopilot(stage, trial), DT);
+      stepTrial(tidy, trial, autopilot(tidy, trial), DT);
       if (!trial.onRoad) offRoad += DT;
     }
     expect(trial.phase).toBe('finished');
