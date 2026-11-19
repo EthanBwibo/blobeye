@@ -1,4 +1,5 @@
 import type { EngineState } from '../engine/model';
+import type { Handoff } from '../scene/handoff';
 
 export interface RallyGateHost {
   engine: EngineState;
@@ -8,19 +9,23 @@ export interface RallyGateHost {
   onExit(): void;
   /** Turn the engine sound down a little while the co-driver speaks, and back up after. */
   duckEngine(on: boolean): void;
+  /** Take the car out of the drawing for the stage to drive, with the drawing's shot. Null where there is no drawing. */
+  lendCar?(): Handoff | null;
 }
 
 export interface RallyGate {
   /**
    * Call once per frame. `onSheet` is true on the Safari sheet and `clear` once the visitor is well away
-   * from it. When the car has driven off (`carGone`) the stage starts by itself, once per visit to the sheet.
+   * from it. When the car pulls away (`carLeaving`) the stage starts by itself, once per visit to the sheet,
+   * and takes the car with it as it goes: the drive-off and the start are one shot.
    */
-  update(onSheet: boolean, clear: boolean, carGone: boolean): void;
+  update(onSheet: boolean, clear: boolean, carLeaving: boolean): void;
 }
 
 /**
  * The way in to the Safari stages, on their own sheet. The game is a separate chunk: it is fetched and
- * built when the visitor reaches this sheet, and cuts in when the car has driven off or the button is pressed.
+ * built when the visitor reaches this sheet, and takes over as the car pulls away or the button is pressed.
+ * The page's panels fade, leaving the sheet's grid, which the stage then dissolves into murram and savannah.
  *
  * On a touch screen the game brings its own pads, so the note says so instead of naming keys.
  */
@@ -45,17 +50,22 @@ export function initRallyGate(host: RallyGateHost): RallyGate {
     button.disabled = true;
     button.textContent = 'Loading the stage';
     let started = false;
+    let lent: Handoff | null = null;
     try {
       const { startRally } = await fetchGame();
       host.onStart();
       started = true;
       for (const el of behind) el.inert = true;
+      document.body.classList.add('rally-on');
+      lent = host.lendCar?.() ?? null;
       startRally({
         engine: host.engine,
+        handoff: lent,
         toggleSound: () => document.getElementById('sound')?.click(),
         duckEngine: host.duckEngine,
         onExit() {
           for (const el of behind) el.inert = false;
+          document.body.classList.remove('rally-on');
           host.onExit();
           busy = false;
           button.disabled = false;
@@ -66,7 +76,9 @@ export function initRallyGate(host: RallyGateHost): RallyGate {
     } catch (err) {
       console.warn('The stage could not be loaded:', err);
       if (started) {
+        lent?.giveBack();
         for (const el of behind) el.inert = false;
+        document.body.classList.remove('rally-on');
         host.onExit();
       }
       game = null;
@@ -79,12 +91,12 @@ export function initRallyGate(host: RallyGateHost): RallyGate {
   button.addEventListener('click', () => void begin());
 
   return {
-    update(onSheet, clear, carGone) {
+    update(onSheet, clear, carLeaving) {
       if (clear) armed = true;
       if (!onSheet || busy) return;
       // Fetch the game and build its world ahead of time, so the cut into it is instant. A failed fetch is tried again on the button.
       if (!game) fetchGame().then((m) => m.warmRally(), () => (game = null));
-      if (armed && carGone) void begin();
+      if (armed && carLeaving) void begin();
     },
   };
 }

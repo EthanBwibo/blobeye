@@ -17,10 +17,10 @@ export type Targets = Readonly<Record<Medal, number>>;
 
 /**
  * Naivasha's times to beat. Set against the tests' scripted driver, which keeps to the middle of the road
- * and takes a little over 64 seconds: gold wants a braver run than that. Nobody has driven the stage yet,
- * so expect to move these.
+ * and, missing the animals, takes a little under 64 seconds: gold wants a braver run than that. Hitting an
+ * animal costs 5 seconds (see `HIT` in hazards.ts). Nobody has driven the stage yet, so expect to move these.
  */
-export const TARGETS: Targets = { gold: 64, silver: 70, bronze: 80 };
+export const TARGETS: Targets = { gold: 62.5, silver: 70, bronze: 80 };
 
 /** The best medal a time earns, or null if it misses bronze. */
 export function medalFor(time: number, targets: Targets = TARGETS): Medal | null {

@@ -11,7 +11,7 @@
  */
 import * as THREE from 'three';
 import { WHEELS } from '../car/model';
-import { createCar } from '../scene/carScene';
+import { createCar, type Car } from '../scene/carScene';
 import { lightStudio } from '../scene/studio';
 import type { CameraMode, Place } from './chase';
 import type { CarState } from './handling';
@@ -62,8 +62,11 @@ export interface View {
   lift: number;
   /** How far the wheels are off the road, in metres: 0 except in a jump. The shadow stays on the road. */
   air: number;
-  /** Where each animal is on the ground, and the way it is facing. */
-  animals: readonly { kind: 'zebra' | Species; x: number; y: number; heading: number }[];
+  /**
+   * Where each animal is on the ground, and the way it is facing. One knocked aside by the car may be turned
+   * over by `roll` (radians about its length: π/2 lies on its side) and off the ground by `lift` metres.
+   */
+  animals: readonly { kind: 'zebra' | Species; x: number; y: number; heading: number; roll?: number; lift?: number }[];
   /** How strongly the headlights light the way: 0 is off, 1 is full beam at night. */
   lamps: number;
   eye: Place;
@@ -75,6 +78,8 @@ export interface View {
   ghost: GhostPose | null;
   /** Which camera: from the cockpit the car's body gives way to a dashboard, a wheel and the pillars. The close chase if left out. */
   camera?: CameraMode;
+  /** How far the picture is shifted off centre, as shares of the screen's width and height: the drawing's framing, on the way in. */
+  shift?: readonly [number, number];
 }
 
 export interface WorldOptions {
@@ -92,6 +97,16 @@ export interface World {
   /** Move the sun and the haze to a time of day. The colours follow with `applyTheme`. */
   setLight(light: Light): void;
   draw(view: View): void;
+  /**
+   * On the way in from the drawing sheet: show the stage only out to `reach` metres from `at`, its edge drawn
+   * in ink and dissolving into the sheet, which shows through everything else; and the sky and far hills
+   * only `far` of the way in (0 to 1). Infinity for the whole stage.
+   */
+  setReveal(reach: number, at?: { x: number; y: number }, far?: number): void;
+  /** Drive the drawing's own car instead of this world's, cockpit and all, until `releaseCar`. */
+  adoptCar(lent: Car): void;
+  /** Hand the adopted car back, taking it out of this world, and drive this world's own again. */
+  releaseCar(): void;
   /** The most puffs of dust this world will draw. */
   mostDust: number;
   /** Let go of the graphics memory. The world cannot be drawn again. */
@@ -137,10 +152,64 @@ const LAMP_GLSL = `
   }
 `;
 
+/**
+ * The way in from the drawing sheet: the stage only shows out to `revealR` metres from `revealAt`, with a
+ * ragged edge in ink, and past it the sheet shows through. Far past every stage, it is all there.
+ * `farShow` does the same for the sky and the far hills, in a dither of small blocks.
+ */
+const reveal = {
+  revealR: { value: 1e6 },
+  revealAt: { value: new THREE.Vector2() },
+  revealInk: { value: new THREE.Color() },
+  farShow: { value: 1 },
+};
+const REVEAL_GLSL = `
+  uniform float revealR;
+  uniform vec2 revealAt;
+  uniform vec3 revealInk;
+  float revealNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453);
+    float b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(127.1, 311.7))) * 43758.5453);
+    float c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(127.1, 311.7))) * 43758.5453);
+    float d = fract(sin(dot(i + vec2(1.0, 1.0), vec2(127.1, 311.7))) * 43758.5453);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+  vec3 revealed(vec3 colour) {
+    if (revealR > 1.0e5) return colour;
+    float edge = length(vLampWorld.xz - revealAt) - revealR + (revealNoise(vLampWorld.xz * 0.22) - 0.5) * (5.0 + revealR * 0.18);
+    if (edge > 0.0) discard;
+    // Ink only along the edge, as if the sheet were burning back from the stage.
+    return mix(colour, revealInk, smoothstep(-1.4, 0.0, edge));
+  }
+`;
+const DITHER_GLSL = `
+  uniform float farShow;
+  bool hiddenFar() {
+    if (farShow >= 1.0) return false;
+    vec2 cell = floor(gl_FragCoord.xy / 4.0);
+    return fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453) > farShow;
+  }
+`;
+
+/** Have a far-off material come in through the sheet, by `farShow`, on the way in. */
+function dithered<M extends THREE.Material>(material: M): M {
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, reveal);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\n${DITHER_GLSL}`)
+      .replace('#include <opaque_fragment>', 'if (hiddenFar()) discard;\n#include <opaque_fragment>');
+  };
+  material.customProgramCacheKey = () => 'far-dither';
+  return material;
+}
+
 /** Have the headlights light a flat material: it is drawn this many times brighter where they fall, at most. */
 function litByLamps<M extends THREE.Material>(material: M, gain = 3.2): M {
   material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, lamp);
+    Object.assign(shader.uniforms, lamp, reveal);
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vLampWorld;').replace(
       '#include <project_vertex>',
       `#include <project_vertex>
@@ -151,8 +220,8 @@ function litByLamps<M extends THREE.Material>(material: M, gain = 3.2): M {
       vLampWorld = (modelMatrix * lampWorld).xyz;`,
     );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${LAMP_GLSL}`)
-      .replace('#include <opaque_fragment>', `outgoingLight *= 1.0 + lampGlow() * ${gain.toFixed(2)};\n#include <opaque_fragment>`);
+      .replace('#include <common>', `#include <common>\n${LAMP_GLSL}\n${REVEAL_GLSL}`)
+      .replace('#include <opaque_fragment>', `outgoingLight *= 1.0 + lampGlow() * ${gain.toFixed(2)};\noutgoingLight = revealed(outgoingLight);\n#include <opaque_fragment>`);
   };
   material.customProgramCacheKey = () => `lamps-${gain}`;
   return material;
@@ -327,6 +396,7 @@ function skyMaterial(): THREE.ShaderMaterial {
       haze: { value: new THREE.Color() },
       sun: { value: new THREE.Color() },
       sunAt: { value: SUN },
+      farShow: reveal.farShow,
     },
     vertexShader: `
       varying vec3 vWay;
@@ -340,7 +410,9 @@ function skyMaterial(): THREE.ShaderMaterial {
       uniform vec3 sun;
       uniform vec3 sunAt;
       varying vec3 vWay;
+      ${DITHER_GLSL}
       void main() {
+        if (hiddenFar()) discard;
         vec3 way = normalize(vWay);
         vec3 tone = mix(haze, top, smoothstep(0.02, 0.55, way.y));
         float near = max(0.0, dot(way, sunAt));
@@ -393,7 +465,8 @@ function dustMaterial(): THREE.ShaderMaterial {
 export function createWorld(stage: Stage, options: WorldOptions = {}): World {
   const lite = options.lite ?? false;
   const mostDust = lite ? 160 : MOST_DUST;
-  const renderer = new THREE.WebGLRenderer({ antialias: !lite, powerPreference: 'high-performance' });
+  // See-through, so the drawing sheet can show through the stage on the way in.
+  const renderer = new THREE.WebGLRenderer({ antialias: !lite, alpha: true, powerPreference: 'high-performance' });
   // Enough to look sharp; more only costs frames on a laptop's graphics. A phone draws fewer pixels than its
   // screen has and lets the browser stretch them: its screen is small and dense enough that it hardly shows.
   renderer.setPixelRatio(lite ? Math.min(window.devicePixelRatio || 1, 1) * 0.85 : Math.min(window.devicePixelRatio || 1, 1.5));
@@ -410,8 +483,8 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
   const ground = (options: THREE.MeshBasicMaterialParameters = {}) => flat({ depthWrite: false, side: THREE.DoubleSide, ...options });
   const mat = {
     sky: skyMaterial(),
-    farHills: far({ fog: false, depthWrite: false, side: THREE.DoubleSide }),
-    nearHills: far({ fog: false, depthWrite: false, side: THREE.DoubleSide }),
+    farHills: dithered(far({ fog: false, depthWrite: false, side: THREE.DoubleSide })),
+    nearHills: dithered(far({ fog: false, depthWrite: false, side: THREE.DoubleSide })),
     savannah: ground(),
     verge: ground(),
     road: ground(),
@@ -744,6 +817,8 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
         kind,
         Array.from({ length: counts[kind] }, () => {
           const animal = new THREE.Group();
+          // Turned to its heading first, then rolled about its own length when knocked over.
+          animal.rotation.order = 'YXZ';
           animal.add(new THREE.Mesh(made.pale, pale), new THREE.Mesh(made.dark, dark));
           animal.visible = false;
           scene.add(animal);
@@ -797,14 +872,16 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
   }
 
   // --- The car: the same model as the drawing, at road size
-  const car = createCar();
-  car.group.scale.setScalar(UNIT);
+  const own = createCar();
+  /** The car being driven: this world's own, or the drawing's, handed over on the way in (`adoptCar`). */
+  let car: Car = own;
+  own.group.scale.setScalar(UNIT);
   // Turn to the heading first, then dip the nose, then lean.
-  car.group.rotation.order = 'YXZ';
-  scene.add(car.group);
+  own.group.rotation.order = 'YXZ';
+  scene.add(own.group);
   // The cockpit, for the camera in the driver's seat: in the car's own units and frame (+z to the front, -x to
   // its right, where the driver sits), with the body hidden around it. Flat and low-poly, like the stage.
-  const body = car.group.children.filter((part) => part.visible);
+  let body = car.group.children.filter((part) => part.visible);
   const cockpit = new THREE.Group();
   cockpit.visible = false;
   const inside = {
@@ -903,12 +980,18 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
   dust.renderOrder = 5;
   scene.add(dust);
 
+  let themeScope: Element | undefined;
+  let haze = new THREE.Color();
+  let revealing = false;
   const applyTheme = (scope?: Element): void => {
-    const css = getComputedStyle(scope instanceof Element && scope.isConnected ? scope : document.documentElement);
+    themeScope = scope ?? themeScope;
+    const css = getComputedStyle(themeScope instanceof Element && themeScope.isConnected ? themeScope : document.documentElement);
     const token = (name: string) => new THREE.Color(css.getPropertyValue(name).trim());
-    const haze = token('--haze');
+    haze = token('--haze');
     fog.color = haze;
-    scene.background = haze;
+    // On the way in the sheet shows through wherever the stage has not come yet.
+    scene.background = revealing ? null : haze;
+    reveal.revealInk.value = token('--ink');
     mat.sky.uniforms.top!.value = token('--sky');
     mat.sky.uniforms.haze!.value = haze;
     mat.sky.uniforms.sun!.value = token('--sun');
@@ -979,6 +1062,7 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
     camera.updateProjectionMatrix();
   };
 
+  const size = new THREE.Vector2();
   const draw = (view: View): void => {
     const { car: at, eye, target } = view;
     car.group.position.set(at.x, view.lift, at.y);
@@ -1008,6 +1092,11 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
 
     camera.position.set(eye.x, eye.height, eye.y);
     camera.lookAt(target.x, target.height, target.y);
+    const [sx, sy] = view.shift ?? [0, 0];
+    if (sx || sy) {
+      const { width, height } = renderer.getSize(size);
+      camera.setViewOffset(width, height, sx * width, sy * height, width, height);
+    } else if (camera.view?.enabled) camera.clearViewOffset();
     if (camera.fov !== view.fov) {
       camera.fov = view.fov;
       camera.updateProjectionMatrix();
@@ -1025,9 +1114,9 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
       const animal = flocks[where.kind][(used[where.kind] = (used[where.kind] ?? -1) + 1)];
       if (!animal) continue;
       animal.visible = true;
-      // A small bob as it goes.
-      animal.position.set(where.x, Math.abs(Math.sin((where.x + where.y) * 1.7)) * 0.06, where.y);
-      animal.rotation.y = -where.heading;
+      // A small bob as it goes; one knocked aside says how high it is itself.
+      animal.position.set(where.x, where.lift ?? Math.abs(Math.sin((where.x + where.y) * 1.7)) * 0.06, where.y);
+      animal.rotation.set(where.roll ?? 0, -where.heading, 0);
     }
     for (const [kind, flock] of Object.entries(flocks)) for (let i = (used[kind] ?? -1) + 1; i < flock.length; i++) flock[i]!.visible = false;
 
@@ -1050,7 +1139,53 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
   // Have the shaders ready before the first frame, so the cut into the stage does not stutter.
   renderer.compile(scene, camera);
 
+  const setReveal = (reach: number, at: { x: number; y: number } = { x: 0, y: 0 }, farShow = 1): void => {
+    const whole = !Number.isFinite(reach);
+    reveal.revealR.value = whole ? 1e6 : Math.max(0, reach);
+    reveal.revealAt.value.set(at.x, at.y);
+    reveal.farShow.value = whole ? 1 : Math.min(1, Math.max(0, farShow));
+    // The fence wire is a line, which cannot dissolve: it waits for the whole stage.
+    mat.wire.visible = whole;
+    if (revealing === !whole) return;
+    revealing = !whole;
+    scene.background = revealing ? null : haze;
+    renderer.setClearColor(haze, revealing ? 0 : 1);
+  };
+
+  /** Move the cockpit and the camera's view of the body over to another car. */
+  const fitOut = (next: Car): void => {
+    if (inCockpit) for (const part of body) part.visible = true;
+    inCockpit = false;
+    cockpit.visible = false;
+    car.group.remove(cockpit);
+    car = next;
+    body = car.group.children.filter((part) => part.visible);
+    car.group.add(cockpit);
+  };
+  const adoptCar = (lent: Car): void => {
+    if (car === lent) return;
+    if (car !== own) releaseCar();
+    scene.remove(own.group);
+    fitOut(lent);
+    lent.group.scale.setScalar(UNIT);
+    lent.group.rotation.order = 'YXZ';
+    scene.add(lent.group);
+    applyTheme();
+    renderer.compile(scene, camera);
+  };
+  function releaseCar(): void {
+    if (car === own) return;
+    const lent = car;
+    car.setSteer(0);
+    car.setAir(0);
+    scene.remove(lent.group);
+    fitOut(own);
+    scene.add(own.group);
+  }
+
   const dispose = (): void => {
+    // A car handed over from the drawing is not this world's to throw away.
+    releaseCar();
     scene.traverse((object) => {
       const { geometry, material } = object as THREE.Mesh;
       geometry?.dispose();
@@ -1061,5 +1196,5 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
     renderer.forceContextLoss();
   };
 
-  return { canvas, resize, applyTheme, setLight, draw, mostDust, dispose };
+  return { canvas, resize, applyTheme, setLight, draw, setReveal, adoptCar, releaseCar, mostDust, dispose };
 }

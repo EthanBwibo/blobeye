@@ -71,6 +71,100 @@ export type Animals =
 /** How big each kind is on the ground, as a circle the car can hit. */
 export const ANIMAL_SIZE: Record<Species, number> = { giraffe: 1.3, warthog: 0.55, ostrich: 0.6, flamingo: 0.35 };
 
+/** Every animal on the stage, the zebra too. */
+export type AnimalKind = 'zebra' | Species;
+
+/**
+ * Hitting an animal. It is knocked aside and the car loses this share of its speed, in proportion to the
+ * animal's size: a giraffe or a zebra a lot, a warthog a little. `PENALTY` seconds go on the clock for each.
+ * Below `slowest` m/s the car only nudges it, as it would a rock.
+ */
+export const HIT = {
+  cost: { giraffe: 0.5, zebra: 0.4, ostrich: 0.16, warthog: 0.1, flamingo: 0.05 } as Record<AnimalKind, number>,
+  penalty: 5,
+  slowest: 3,
+} as const;
+
+/**
+ * How a struck animal goes, cartoon fashion and with no harm shown: thrown the way the car was going and
+ * away from it, it tumbles over once for `tumble` seconds and comes to rest on its side beside the road.
+ * The big ones (`LIES_DOWN`) stay lying there; the rest lie dazed for `daze` seconds, get up over `rise`,
+ * and limp off into the bush at `limp` m/s for `wander` metres.
+ */
+export const TUMBLE = { tumble: 1.1, grip: 2, daze: 1.2, rise: 0.35, limp: 1.3, wander: 14 } as const;
+export const LIES_DOWN: Record<AnimalKind, boolean> = { giraffe: true, zebra: true, warthog: false, ostrich: false, flamingo: false };
+/** Half the width of each kind's body, so one lying on its side lies on the ground and not half under it. */
+export const HALF_WIDTH: Record<AnimalKind, number> = { giraffe: 0.4, zebra: 0.32, warthog: 0.25, ostrich: 0.3, flamingo: 0.12 };
+
+/** A struck animal, from the moment it was hit. Places are on the ground, as in `stage.ts`. */
+export interface Knocked {
+  kind: AnimalKind;
+  /** Which animal it was, as `creaturesAt` names them. */
+  id: string;
+  /** The clock when it was hit. */
+  at: number;
+  /** Where it was hit, where it comes to rest, and which way it limps off from there (a unit vector away from the road). */
+  from: readonly [number, number];
+  rest: readonly [number, number];
+  away: readonly [number, number];
+  /** The way it faced when hit, and how far it spins round as it tumbles, in radians. */
+  heading: number;
+  spin: number;
+  /** How high it is thrown, in metres. */
+  hop: number;
+}
+
+/** A struck animal's place at a moment: `roll` is how far it is turned over onto its side (π/2 is lying flat), `lift` its height off the ground. */
+export interface KnockedPose {
+  x: number;
+  y: number;
+  heading: number;
+  roll: number;
+  lift: number;
+}
+
+const smooth = (t: number) => {
+  const c = Math.min(1, Math.max(0, t));
+  return c * c * (3 - 2 * c);
+};
+
+/** Where a struck animal is, `time` on the run's clock. */
+export function knockedPose(k: Knocked, time: number): KnockedPose {
+  const since = Math.max(0, time - k.at);
+  const { tumble, grip, daze, rise, limp, wander } = TUMBLE;
+  const flat = HALF_WIDTH[k.kind];
+  if (since < tumble) {
+    // Fast at first and slowing, over to the place it comes to rest.
+    const share = (1 - Math.exp(-grip * since)) / (1 - Math.exp(-grip * tumble));
+    const u = since / tumble;
+    // Once right over and onto its side.
+    const roll = (Math.PI * 2 + Math.PI / 2) * (1 - (1 - u) * (1 - u));
+    return {
+      x: k.from[0] + (k.rest[0] - k.from[0]) * share,
+      y: k.from[1] + (k.rest[1] - k.from[1]) * share,
+      heading: k.heading + k.spin * share,
+      roll,
+      lift: k.hop * Math.sin(Math.PI * Math.min(1, u * 1.6)) * (u < 0.625 ? 1 : 0) + flat * Math.abs(Math.sin(roll)),
+    };
+  }
+  const lying = { x: k.rest[0], y: k.rest[1], heading: k.heading + k.spin, roll: Math.PI / 2, lift: flat };
+  const after = since - tumble;
+  if (LIES_DOWN[k.kind] || after < daze) return lying;
+  const up = smooth((after - daze) / rise);
+  const walked = Math.min(wander, Math.max(0, after - daze - rise) * limp);
+  const facing = Math.atan2(k.away[1], k.away[0]);
+  const turn = Math.atan2(Math.sin(facing - lying.heading), Math.cos(facing - lying.heading));
+  // A limp: a dip and a lean on every other step, until it stops.
+  const step = walked < wander ? Math.sin((after - daze - rise) * 7) : 0;
+  return {
+    x: k.rest[0] + k.away[0] * walked,
+    y: k.rest[1] + k.away[1] * walked,
+    heading: lying.heading + turn * up,
+    roll: (Math.PI / 2) * (1 - up) + 0.12 * up * Math.max(0, step),
+    lift: flat * (1 - up) + 0.05 * up * Math.abs(step),
+  };
+}
+
 /** A hump in the road, `height` at its top and `reach` metres long each side. */
 export interface Crest {
   at: number;
@@ -268,6 +362,8 @@ export function branchParts(branch: Branch, halfWidth: number): Rock[] {
 /** One animal, in road coordinates. `facing` is the way it looks, in radians from straight up the road; positive turns right. */
 export interface AnimalSpot {
   kind: Species;
+  /** Which animal: its group and its place in it, the same on every run. */
+  id: string;
   along: number;
   across: number;
   facing: number;
@@ -295,24 +391,25 @@ export function animalsAt(hazards: Hazards, time: number, woke: readonly (number
         const walked = time * group.pace - i * group.gap;
         const lap = ((walked % (group.span * 2)) + group.span * 2) % (group.span * 2);
         const out = lap < group.span;
-        spots.push({ kind: 'giraffe', along: group.at + i * 3.5, across: out ? lap - group.span / 2 : group.span * 1.5 - lap, facing: out ? Math.PI / 2 : -Math.PI / 2 });
+        spots.push({ kind: 'giraffe', id: `${g}.${i}`, along: group.at + i * 3.5, across: out ? lap - group.span / 2 : group.span * 1.5 - lap, facing: out ? Math.PI / 2 : -Math.PI / 2 });
       } else if (group.kind === 'warthog') {
         // Each goes a moment after the one in front, in a line.
         const own = time - i * 0.35 + group.every * 1000;
         const round = Math.floor(own / group.every);
         const way = round % 2 ? 1 : -1;
         const into = Math.min(group.span, (own - round * group.every) * group.pace);
-        spots.push({ kind: 'warthog', along: group.at + i * 1.4, across: way * (into - group.span / 2), facing: (way * Math.PI) / 2 });
+        spots.push({ kind: 'warthog', id: `${g}.${i}`, along: group.at + i * 1.4, across: way * (into - group.span / 2), facing: (way * Math.PI) / 2 });
       } else if (group.kind === 'ostrich') {
         const start = woke[g] ?? null;
         const run = start === null ? 0 : Math.max(0, time - start) * group.pace;
         const along = Math.min(group.to, group.at + run) + i * 3;
         // They weave a little as they run.
         const sway = start === null ? 0 : Math.sin(along * 0.18 + i) * 0.6;
-        spots.push({ kind: 'ostrich', along, across: group.side * (halfWidth + group.out + i * 1.6) + sway, facing: 0 });
+        spots.push({ kind: 'ostrich', id: `${g}.${i}`, along, across: group.side * (halfWidth + group.out + i * 1.6) + sway, facing: 0 });
       } else {
         spots.push({
           kind: 'flamingo',
+          id: `${g}.${i}`,
           along: group.at + (hash(i, 1) - 0.5) * 22,
           across: group.side * (halfWidth + 3 + hash(i, 2) * 14),
           facing: hash(i, 3) * Math.PI * 2,

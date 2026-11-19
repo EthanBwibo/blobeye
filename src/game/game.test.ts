@@ -128,10 +128,12 @@ describe('stage', () => {
   });
 
   it('takes a tidy driver about a minute, and stops them after the line', () => {
-    const trial = newTrial(stage);
+    // A tidy driver misses the animals; this one cannot steer round them, so they are taken off.
+    const tidy: Stage = { ...stage, hazards: { ...stage.hazards, zebra: { ...stage.hazards.zebra, count: 0 }, animals: [] } };
+    const trial = newTrial(tidy);
     let offRoad = 0;
     for (let i = 0; i < 120 * 150 && trial.phase !== 'finished'; i++) {
-      stepTrial(stage, trial, autopilot(stage, trial), DT);
+      stepTrial(tidy, trial, autopilot(tidy, trial), DT);
       if (!trial.onRoad) offRoad += DT;
     }
     expect(trial.phase).toBe('finished');
@@ -146,7 +148,7 @@ describe('stage', () => {
     expect(medalFor(trial.time)).toBe('silver');
     expect(trial.time - TARGETS.gold).toBeLessThan(2);
     const clock = trial.time;
-    for (let i = 0; i < 120 * 6; i++) stepTrial(stage, trial, { throttle: 1, brake: 0, steer: 0 }, DT);
+    for (let i = 0; i < 120 * 6; i++) stepTrial(tidy, trial, { throttle: 1, brake: 0, steer: 0 }, DT);
     expect(trial.time).toBe(clock);
     expect(Math.hypot(trial.car.vx, trial.car.vy)).toBe(0);
     expect(trial.progress).toBeLessThan(stage.length);

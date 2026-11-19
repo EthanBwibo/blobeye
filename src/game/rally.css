@@ -8,6 +8,12 @@
   --giraffe:#D9A55B; --giraffe-patch:#7A4321; --warthog:#6E5A4C; --warthog-dark:#33261E;
   --ostrich:#221C1A; --ostrich-pale:#D8BFA9; --flamingo:#EE8C93; --flamingo-dark:#2A1E1E}
 #rally canvas{position:absolute; inset:0; width:100%; height:100%; display:block}
+/* The way in from the drawing sheet: see-through, so the page's grid shows until the stage comes through it,
+   and nothing on the screen but the car and the road until the count starts (src/game/intro.ts) */
+#rally.intro{background:transparent}
+#rally > :not(canvas){transition:opacity .4s ease}
+#rally.intro > :not(canvas):not(.turn){opacity:0; pointer-events:none}
+#rally .clock .penalty{font-style:normal; color:var(--fire)}
 #rally .hud{
   position:absolute; display:flex; flex-direction:column; gap:2px; padding:8px 14px;
   background:color-mix(in srgb,var(--paper-2) 92%,transparent); border:1.5px solid var(--ink); color:var(--ink);

@@ -124,8 +124,8 @@ const ROYSAMBU: StageDef = {
       { kind: 'ostrich', at: 1340, to: 1520, count: 2, side: 1, out: 3, pace: 17 },
     ],
   },
-  // Set like Naivasha's against the tests' scripted driver, which takes about 78 seconds here, the zebra, the grid, the splash and the sand included.
-  targets: { gold: 76, silver: 83, bronze: 93 },
+  // Set like Naivasha's against the tests' scripted driver, which takes about 73.5 seconds here missing the zebra, the grid, the splash and the sand included.
+  targets: { gold: 72, silver: 83, bronze: 93 },
   bush: { density: 0.55, trees: 0.04, rocks: 0.02, seed: 1959 },
 };
 

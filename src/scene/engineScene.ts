@@ -15,6 +15,7 @@ import { DRIVE_OFF_SHEET, ENGINE_FIRST_SHEET, NARROW_WIDTH, cameraAt, cameraDist
 import { createCar } from './carScene';
 import { lightStudio } from './studio';
 import { XRAY_LAYER, createDrivetrain } from './drivetrainScene';
+import type { Handoff } from './handoff';
 
 export interface EngineScene {
   /** Draw one frame. `sheet` is the scroll position in sheets of the story; `xray` is how far the X-ray has come on, 0 to 1. */
@@ -29,6 +30,13 @@ export interface EngineScene {
   openBonnet(angle: number): void;
   /** True once the car has driven off the Safari sheet. Never true with reduced motion, where it stays parked. */
   readonly carGone: boolean;
+  /** True once the car has turned away on the Safari sheet and begun to pull off. Never true with reduced motion. */
+  readonly carLeaving: boolean;
+  /**
+   * Take the car out of the drawing and hand it to the Safari stage, with where the camera stood, so the stage
+   * can pick up the same shot. Null if it is already handed over.
+   */
+  lendCar(): Handoff | null;
   /** Bring the car back and keep it parked until the visitor scrolls back above the Safari sheet. */
   park(): void;
   /** Which cylinders are on their power stroke right now, for the HTML labels. */
@@ -289,7 +297,12 @@ export function createEngineScene(
   /** Seconds since the visitor arrived on the Safari sheet, where the car turns away and drives off. */
   let leaving = 0;
   let carGone = false;
+  let carLeaving = false;
   let parked = false;
+  /** How fast the car is pulling away and how far it has gone, in the drawing's units; and whether the stage has it. */
+  let pace = 0;
+  let travelled = 0;
+  let lent = false;
   /** The car is out of the picture once it has gone this far. */
   const OUT_OF_SIGHT = 45;
   /** How far the bonnet lifts, the angle the car turns to before it leaves, and how it gathers speed. */
@@ -346,8 +359,10 @@ export function createEngineScene(
       parked = sheet > DRIVE_OFF_SHEET - 0.1;
     }
     const driving = Math.max(0, leaving - TURN_TIME * 0.7);
-    const travelled = Math.min(90, 0.5 * PULL_AWAY * driving * driving);
+    travelled = Math.min(90, 0.5 * PULL_AWAY * driving * driving);
+    pace = travelled < 90 ? PULL_AWAY * driving : 0;
     carGone = travelled > OUT_OF_SIGHT;
+    carLeaving = !reducedMotion && !parked && driving > 0.2;
     const heading = sheet < ENGINE_FIRST_SHEET ? unwound * (1 - range(sheet, 0, 0.4)) * (1 - xray) : AWAY_ANGLE * range(leaving, 0, TURN_TIME);
     rig.rotation.y = heldTurn ?? heading;
     rig.position.set(carCentre.x + Math.sin(rig.rotation.y) * travelled, carCentre.y, carCentre.z + Math.cos(rig.rotation.y) * travelled);
@@ -407,6 +422,42 @@ export function createEngineScene(
     });
   }
 
+  function lendCar(): Handoff | null {
+    if (lent) return null;
+    lent = true;
+    rig.updateMatrixWorld(true);
+    camera.updateMatrixWorld();
+    const into = car.group.matrixWorld.clone().invert();
+    const eye = camera.position.clone().applyMatrix4(into);
+    const target = cam.target.clone().applyMatrix4(into);
+    const view = camera.view;
+    const shift: [number, number] = view?.enabled ? [view.offsetX / view.fullWidth, view.offsetY / view.fullHeight] : [0, 0];
+    const kept = { position: car.group.position.clone(), rotation: car.group.rotation.clone(), scale: car.group.scale.clone() };
+    world.remove(car.group);
+    // Draw the sheet once without it: the stage's own drawing goes over this one, and it is see-through at first.
+    renderer.render(scene, camera);
+    return {
+      car,
+      eye: [eye.x, eye.y, eye.z],
+      target: [target.x, target.y, target.z],
+      fov: camera.fov,
+      shift,
+      speed: pace / CAR_SCALE,
+      rolled: travelled / CAR_SCALE,
+      giveBack() {
+        if (!lent) return;
+        lent = false;
+        car.group.position.copy(kept.position);
+        car.group.rotation.copy(kept.rotation);
+        car.group.scale.copy(kept.scale);
+        car.setSteer(0);
+        car.setAir(0);
+        world.add(car.group);
+        applyTheme();
+      },
+    };
+  }
+
   setHeaders(state.mode);
   lightStudio(renderer, scene);
   applyTheme();
@@ -423,6 +474,10 @@ export function createEngineScene(
     get carGone() {
       return carGone;
     },
+    get carLeaving() {
+      return carLeaving;
+    },
+    lendCar,
     park: () => void (parked = true),
   };
 }
