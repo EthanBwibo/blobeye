@@ -108,16 +108,24 @@
 
 /* The co-driver's calls (src/game/paceIcons.ts): the next one large at the top centre, the one after smaller beside it */
 #rally .pace{position:absolute; left:50%; top:16px; transform:translateX(-50%); display:flex; align-items:flex-start; gap:12px; pointer-events:none}
-#rally .pace .note{display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 14px 8px; color:var(--ink);
-  background:color-mix(in srgb,var(--paper-2) 92%,transparent); border:1.5px solid var(--ink);
-  font-family:var(--f-mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase}
+#rally .pace .note{display:flex; flex-direction:column; align-items:center; gap:4px; padding:12px 18px 10px; color:#F4F1EA;
+  /* No box: the icons float on a soft dark glow that fades out at the edges */
+  background:radial-gradient(closest-side,rgba(6,8,12,.62),rgba(6,8,12,.34) 62%,transparent);
+  font-family:var(--f-mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+  text-shadow:0 0 6px rgba(0,0,0,.9),0 1px 2px rgba(0,0,0,.9)}
 #rally .pace .icons{display:flex; align-items:flex-start; gap:6px}
+#rally .pace svg{filter:drop-shadow(0 0 5px rgba(0,0,0,.75)) drop-shadow(0 1px 1px rgba(0,0,0,.6))}
 #rally .pace .sign{width:112px; height:112px; display:block}
-#rally .pace .caution{width:44px; height:40px; display:block; color:var(--fire)}
-#rally .pace .then{padding:6px 10px 6px; color:var(--ink-soft)}
+#rally .pace .caution{width:44px; height:40px; display:block}
+/* Corner severity by grade, arrow and number alike; every hazard in the one warning colour */
+#rally .pace .red{color:#FF4D4D}
+#rally .pace .amber{color:#FFA62B}
+#rally .pace .green{color:#4ADE80}
+#rally .pace .hazard{color:#FFD84A}
+#rally .pace .then{padding:6px 12px 6px; opacity:.8}
 #rally .pace .then .sign{width:56px; height:56px}
 #rally .pace .then .caution{width:24px; height:22px}
-#rally .pace svg text{fill:currentColor; font-family:var(--f-display); font-style:italic; font-weight:800}
+#rally .pace svg text{fill:currentColor; stroke:none; font-family:var(--f-display); font-style:italic; font-weight:800}
 #rally .pace .grade{font-size:34px}
 #rally .sr{position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap}
 
