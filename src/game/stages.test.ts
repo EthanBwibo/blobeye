@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { HANDLING, type DriveInput } from './handling';
 import { CAR_RADIUS, HAZARDS } from './hazards';
 import { SHARED_TIMES, STAGE_ID } from './leaderboard';
-import { corners, paceNotes, rockFields } from './notes';
+import { HAIRPIN_CALL, corners, paceNotes, rockFields } from './notes';
+import { caption, signSvg } from './paceIcons';
 import { growScenery } from './scenery';
 import { MEDALS, medalFor } from './splits';
 import { newTrial, poseAt, stepTrial, type Stage, type Trial } from './stage';
@@ -157,6 +158,34 @@ describe.each(STAGES.map((def) => [def.name, def.id] as const))('%s', (_, id) =>
     const all = (s: typeof bush) => s.trees.length + s.rocks.length + s.tufts.length;
     expect(all(thin)).toBeLessThan(all(bush) * 0.6);
     expect(all(thin)).toBeGreaterThan(all(bush) * 0.4);
+  });
+});
+
+describe('the hairpin', () => {
+  const hairpins = (id: string) => corners(byId[id]!.stage).filter((c) => c.hairpin);
+
+  it("is on Hell's Gate only, once, near the finish, and turns right back on itself", () => {
+    expect(hairpins('hells-gate')).toHaveLength(1);
+    expect(hairpins('naivasha')).toHaveLength(0);
+    expect(hairpins('roysambu')).toHaveLength(0);
+    const { stage } = byId['hells-gate']!;
+    const [pin] = hairpins('hells-gate');
+    expect(pin!.grade).toBe(1);
+    expect(pin!.from).toBeGreaterThan(stage.finishAt - 250);
+    const turned = Math.abs(Math.atan2(Math.sin(poseAt(stage, pin!.to).heading - poseAt(stage, pin!.from).heading), Math.cos(poseAt(stage, pin!.to).heading - poseAt(stage, pin!.from).heading)));
+    // Coming out it points nearly the opposite way to going in.
+    expect(turned).toBeGreaterThan(2.6);
+  });
+
+  it('gets the co-driver call "Hairpin, handbrake!", with a U-turn arrow and no number', () => {
+    const notes = paceNotes(byId['hells-gate']!.stage).filter((n) => n.text === HAIRPIN_CALL);
+    expect(HAIRPIN_CALL).toBe('Hairpin, handbrake!');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.say).toBe(HAIRPIN_CALL);
+    expect(notes[0]!.sign).toMatchObject({ kind: 'corner', grade: 1, caution: 3, hairpin: true });
+    expect(caption(notes[0]!.sign)).toBe('hairpin');
+    expect(signSvg(notes[0]!.sign)).not.toContain('class="grade"');
+    for (const id of ['naivasha', 'roysambu']) expect(paceNotes(byId[id]!.stage).some((n) => n.text === HAIRPIN_CALL)).toBe(false);
   });
 });
 

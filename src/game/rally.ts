@@ -12,7 +12,7 @@ import './rally.css';
 import type { EngineState } from '../engine/model';
 import { WHEELS } from '../car/model';
 import { createBoardHud, type BoardHud } from './boardHud';
-import { chaseFov, chaseView, countdown, newChase, stepChase, type Chase } from './chase';
+import { CAMERA_NAMES, chaseFov, chaseView, countdown, mountFov, mountView, newChase, nextCamera, onBoard, readCamera, rigFor, stepChase, type CameraMode, type Chase } from './chase';
 import { angleToRoad, dueCalls, isStale, joinCalls, newWrongWay, stepWrongWay, wantsLights, type WrongWay } from './codriver';
 import { beatsGhost, finishGhost, ghostAt, ghostText, newRecorder, packReplay, parseGhost, record, unpackReplay, type Ghost, type Recorder } from './ghost';
 import { carSpeeds, easeSteer, engineRpm, gearFor, type DriveInput } from './handling';
@@ -27,7 +27,7 @@ import { scatter } from './scenery';
 import { MEDALS, formatGap, keepBest, medalFor, parseBestRun, sectorGap, sectorTimes, verdict, type BestRun } from './splits';
 import { canReset, creaturesAt, formatTime, locate, newTrial, resetToRoad, stepTrial, type Stage, type Trial } from './stage';
 import { STAGES, buildStageOf, moveRenamed, stageById, type StageDef } from './stages';
-import { buzz, buzzFor, createTouchPads, tiltSteer, type TouchPads } from './touch';
+import { STEERING_NAMES, buzz, buzzFor, createTouchPads, nextSteering, readSteering, tiltSteer, type Steering, type TouchPads } from './touch';
 import { createVoice } from './voice';
 import { UNIT, createWorld, type Puff, type World } from './world';
 
@@ -59,6 +59,12 @@ const KEYS = {
   ghostMode: 'blobeye.rally.ghost-on',
   /** Whether the headlights are on. */
   lights: 'blobeye.rally.lights',
+  /** Which camera: 'close', 'far', 'bonnet' or 'cockpit'. */
+  camera: 'blobeye.rally.camera',
+  /** On a touch screen, how to steer: 'wheel', 'tilt' or 'pads'; and whether the handbrake lever is shown ('on' or 'off'). */
+  steering: 'blobeye.rally.steering',
+  handbrake: 'blobeye.rally.handbrake',
+  /** Whether the phone steered by tilting, from before there was a choice of three: read only if `steering` is not set. */
   tilt: 'blobeye.rally.tilt',
   voice: 'blobeye.rally.codriver',
 } as const;
@@ -176,8 +182,8 @@ export function startRally(host: RallyHost): Rally {
   root.setAttribute(
     'aria-label',
     touch
-      ? 'Safari stage time trial. A steering wheel bottom left; the handbrake, brake and throttle bottom right.'
-      : 'Safari stage time trial. Arrow keys or W A S D to drive, Space for the handbrake, R to restart or, when stuck, to get back on the road, L for the headlights, C for the co-driver, G for the ghost, 1 to 3 to pick a stage, Escape to leave.',
+      ? 'Safari stage time trial. The steering bottom left; the brake and throttle bottom right, with the handbrake if it is turned on in the settings. The camera button top right changes the view.'
+      : 'Safari stage time trial. Arrow keys or W A S D to drive, Space for the handbrake, R to restart or, when stuck, to get back on the road, C to change the camera, L for the headlights, V for the co-driver, G for the ghost, 1 to 3 to pick a stage, Escape to leave.',
   );
   const stageButtons = STAGES.map((def, i) => `<button type="button" class="tool" data-stage="${def.id}"><b>${def.name}</b><small>${touch ? def.blurb : `${i + 1} · ${def.blurb}`}</small></button>`).join('');
   const sectors = stage.checkpoints.length + 1;
@@ -194,19 +200,21 @@ export function startRally(host: RallyHost): Rally {
     <div class="hud gauges"><div class="dial">${revMeterSvg()}</div><div class="readout"><span>Gear</span><b data-gear>1</b><span>km/h</span><b data-speed>0</b></div></div>
     <button type="button" class="hud codriver" data-codriver aria-pressed="true">Co-driver · on</button>
     <div class="side" data-side>
+      <button type="button" class="tool camera" data-camera title="Camera: close chase, far chase, bonnet or cockpit. C to change.">Camera · Close chase</button>
       <button type="button" class="tool corner touch-only" data-drawer-toggle aria-expanded="false" aria-controls="rally-drawer">Map · sectors</button>
       <div class="drawer" id="rally-drawer" data-drawer></div>
       <div class="tools" role="group" aria-label="Game controls">
         <button type="button" class="tool" data-tool="ghost" aria-pressed="true">Ghost</button>
         <button type="button" class="tool" data-tool="lights" aria-pressed="false">Lights off</button>
-        <button type="button" class="tool touch-only" data-tool="tilt" aria-pressed="false">Tilt</button>
+        <button type="button" class="tool touch-only" data-tool="steering">Steering · Wheel</button>
+        <button type="button" class="tool touch-only" data-tool="handbrake" aria-pressed="false">Handbrake off</button>
         <button type="button" class="tool touch-only" data-tool="sound">Sound</button>
         <button type="button" class="tool touch-only" data-tool="again">Again</button>
         <button type="button" class="tool touch-only" data-tool="leave">Leave</button>
       </div>
     </div>
     <div class="hud call" data-call aria-live="assertive"><b data-call-big></b><strong data-verdict hidden></strong><span class="targets" data-targets hidden></span><span data-call-small></span><span class="stages" data-stages role="group" aria-label="Stage">${stageButtons}</span><small data-credit hidden>Unofficial fan project. Subaru didn't ask for this.</small></div>
-    <div class="hud keys"><span>Arrows or WASD · drive</span><span>Space · handbrake</span><span>R · restart</span><span>L · lights</span><span>M · sound</span><span>C · co-driver</span><span>G · ghost</span><span>1–3 · stage</span><span>Esc · leave</span></div>
+    <div class="hud keys"><span>Arrows or WASD · drive</span><span>Space · handbrake</span><span>R · restart</span><span>C · camera</span><span>L · lights</span><span>M · sound</span><span>V · co-driver</span><span>G · ghost</span><span>1–3 · stage</span><span>Esc · leave</span></div>
     <div class="turn" data-turn><b>Turn your phone sideways</b><span>The stage is drawn for landscape</span></div>`;
   root.prepend(world.canvas);
   const part = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
@@ -285,8 +293,9 @@ export function startRally(host: RallyHost): Rally {
   const upright = matchMedia('(orientation: portrait)');
   const waitingForTurn = (): boolean => touch && upright.matches;
 
-  // --- The run: the car, the camera behind it, and the 3-2-1 before it may move
-  let chase: Chase = newChase(trial.car);
+  // --- The run: the car, the camera, and the 3-2-1 before it may move
+  let cameraMode: CameraMode = readCamera(read(KEYS.camera));
+  let chase: Chase = newChase(trial.car, rigFor(cameraMode));
   /** Seconds since the car lined up. */
   let waited = 0;
   let steer = 0;
@@ -328,7 +337,7 @@ export function startRally(host: RallyHost): Rally {
   const restart = (): void => {
     trial = newTrial(stage);
     trial.index = locate(stage, trial.car.x, trial.car.y, trial.index).index;
-    chase = newChase(trial.car);
+    chase = newChase(trial.car, rigFor(cameraMode));
     board.reset();
     waited = steer = dive = lean = tilt = 0;
     dust.length = 0;
@@ -374,7 +383,7 @@ export function startRally(host: RallyHost): Rally {
   const backOnRoad = (): void => {
     if (!canReset(trial)) return;
     resetToRoad(stage, trial);
-    chase = newChase(trial.car);
+    chase = newChase(trial.car, rigFor(cameraMode));
     steer = 0;
     resetEl.hidden = true;
   };
@@ -446,8 +455,11 @@ export function startRally(host: RallyHost): Rally {
     // A driver's name is text from a stranger: never markup.
     button.textContent = ghostLabel();
     button.title = 'Ghost: off, my best on this device, or the stage record. G to change.';
-    tool('tilt').setAttribute('aria-pressed', String(tiltOn));
-    tool('tilt').textContent = tiltOn ? 'Tilt on' : 'Tilt off';
+    tool('steering').textContent = `Steering · ${STEERING_NAMES[steering]}`;
+    tool('steering').title = 'How to steer: a wheel, tilting the phone, or two arrow pads.';
+    tool('handbrake').setAttribute('aria-pressed', String(handbrakeShown));
+    tool('handbrake').textContent = handbrakeShown ? 'Handbrake on' : 'Handbrake off';
+    cameraEl.textContent = `Camera · ${CAMERA_NAMES[cameraMode]}`;
   };
   /** The road's height under a place, following the road from the start: the replay keeps no heights of its own. */
   const groundUnder = (): ((x: number, y: number) => number) => {
@@ -497,6 +509,20 @@ export function startRally(host: RallyHost): Rally {
     showTools();
   };
 
+  // --- The camera: C or the button goes round them, and the choice is kept on the device.
+  const cameraEl = part<HTMLButtonElement>('[data-camera]');
+  const cycleCamera = (): void => {
+    cameraMode = nextCamera(cameraMode);
+    write(KEYS.camera, cameraMode);
+    // A cut, as on television: the chase camera takes up its new distance at once, and keeps its swing.
+    chase = { ...chase, reach: newChase(trial.car, rigFor(cameraMode)).reach };
+    showTools();
+  };
+  cameraEl.addEventListener('click', () => {
+    cycleCamera();
+    root.focus();
+  });
+
   const pads: TouchPads | null = touch ? createTouchPads(root) : null;
   const tiltNow: Tilt = { beta: 0, gamma: 0, heard: false };
   const onTilt = (e: DeviceOrientationEvent): void => {
@@ -507,13 +533,26 @@ export function startRally(host: RallyHost): Rally {
   };
   /** How far the screen is turned from the phone's own upright, in degrees. */
   const screenAngle = (): number => screen.orientation?.angle ?? Number((window as { orientation?: unknown }).orientation ?? 0);
-  let tiltOn = false;
-  const setTilt = (on: boolean): void => {
-    tiltOn = on;
-    pads?.setTilt(on);
+  /** How the phone steers, and whether the handbrake lever is out. Both are kept on the device. */
+  let steering: Steering = readSteering(read(KEYS.steering), read(KEYS.tilt));
+  let handbrakeShown = read(KEYS.handbrake) === 'on';
+  /** Whether the phone's tilt is being listened to: on Safari, only once a tap has asked for it. */
+  let listening = false;
+  const listen = (on: boolean): void => {
+    listening = on;
     if (on) window.addEventListener('deviceorientation', onTilt);
     else window.removeEventListener('deviceorientation', onTilt);
-    write(KEYS.tilt, on ? 'on' : 'off');
+  };
+  const setSteering = (mode: Steering): void => {
+    steering = mode;
+    pads?.setSteering(mode);
+    write(KEYS.steering, mode);
+    showTools();
+  };
+  const toggleHandbrake = (): void => {
+    handbrakeShown = !handbrakeShown;
+    pads?.setHandbrake(handbrakeShown);
+    write(KEYS.handbrake, handbrakeShown ? 'on' : 'off');
     showTools();
   };
   /** Safari asks the player first, and only from a tap. */
@@ -526,16 +565,31 @@ export function startRally(host: RallyHost): Rally {
       return false;
     }
   };
-  const toggleTilt = async (): Promise<void> => {
-    if (tiltOn) return setTilt(false);
-    if (await askForTilt()) setTilt(true);
+  /** Start listening to the tilt, asking first where the browser wants that. Refused, the phone goes back to the wheel. */
+  const startTilt = async (): Promise<void> => {
+    if (listening) return;
+    if (await askForTilt()) listen(true);
+    else if (steering === 'tilt') setSteering('wheel');
   };
-  // Tilt is remembered, but where Safari must ask first it waits for a tap on the button.
-  if (touch && read(KEYS.tilt) === 'on' && typeof (DeviceOrientationEvent as unknown as { requestPermission?: unknown }).requestPermission !== 'function') setTilt(true);
+  /** The setting goes round the wheel, tilt and the arrow pads. */
+  const cycleSteering = (): void => {
+    const next = nextSteering(steering);
+    setSteering(next);
+    if (next === 'tilt') void startTilt();
+    else listen(false);
+  };
+  const needsAsking = typeof (DeviceOrientationEvent as unknown as { requestPermission?: unknown }).requestPermission === 'function';
+  if (touch) {
+    pads?.setSteering(steering);
+    pads?.setHandbrake(handbrakeShown);
+    // Tilt is remembered. Where Safari must ask first, the first tap on the stage asks.
+    if (steering === 'tilt' && !needsAsking) listen(true);
+  }
   showTools();
 
   // --- A phone gets the whole screen, held sideways, if the browser allows it. Only a tap may ask.
   const fill = (): void => {
+    if (touch && steering === 'tilt' && !listening) void startTilt();
     if (!touch || document.fullscreenElement || !document.documentElement.requestFullscreen) return;
     document.documentElement
       .requestFullscreen({ navigationUI: 'hide' })
@@ -548,7 +602,8 @@ export function startRally(host: RallyHost): Rally {
     const name = (e.target as HTMLElement).closest<HTMLElement>('[data-tool]')?.dataset.tool;
     if (name === 'ghost') toggleGhost();
     else if (name === 'lights') toggleLights();
-    else if (name === 'tilt') void toggleTilt();
+    else if (name === 'steering') cycleSteering();
+    else if (name === 'handbrake') toggleHandbrake();
     else if (name === 'sound') host.toggleSound();
     else if (name === 'again') {
       restart();
@@ -566,7 +621,7 @@ export function startRally(host: RallyHost): Rally {
     // While a name is being typed, the letters are letters.
     if (board.takesKey(e)) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
-    const known = DRIVE_KEYS.has(e.code) || STAGE_KEYS.includes(e.code) || ['KeyR', 'KeyL', 'KeyM', 'KeyC', 'KeyG', 'Escape', 'Enter'].includes(e.code);
+    const known = DRIVE_KEYS.has(e.code) || STAGE_KEYS.includes(e.code) || ['KeyR', 'KeyL', 'KeyM', 'KeyC', 'KeyV', 'KeyG', 'Escape', 'Enter'].includes(e.code);
     if (!known) return;
     // The page behind uses the same keys to turn its sheets.
     e.preventDefault();
@@ -578,7 +633,8 @@ export function startRally(host: RallyHost): Rally {
     else if (e.code === 'KeyR' || (e.code === 'Enter' && trial.phase === 'finished')) restart();
     else if (e.code === 'KeyL') toggleLights();
     else if (e.code === 'KeyM') host.toggleSound();
-    else if (e.code === 'KeyC') toggleVoice();
+    else if (e.code === 'KeyC') cycleCamera();
+    else if (e.code === 'KeyV') toggleVoice();
     else if (e.code === 'KeyG') toggleGhost();
     else if (STAGE_KEYS.includes(e.code)) pickStage(STAGES[STAGE_KEYS.indexOf(e.code)]!);
     else if (e.code === 'Escape') stop();
@@ -597,9 +653,12 @@ export function startRally(host: RallyHost): Rally {
   const readInput = (dt: number): DriveInput => {
     const keys = (down('ArrowRight', 'KeyD') ? 1 : 0) - (down('ArrowLeft', 'KeyA') ? 1 : 0);
     const touched = pads?.read();
-    if (tiltOn && keys === 0 && tiltNow.heard) {
+    if (steering === 'tilt' && touched && keys === 0 && tiltNow.heard) {
       // The phone is a wheel: follow it closely, but not every tremor.
       steer += (tiltSteer(tiltNow.beta, tiltNow.gamma, screenAngle()) - steer) * (1 - Math.exp(-dt * 14));
+    } else if (keys === 0 && touched?.pads) {
+      // The arrow pads are all or nothing, like the keys, so the wheel is eased the same way.
+      steer = easeSteer(steer, touched.steer, dt);
     } else if (keys === 0 && touched) {
       // The drawn wheel turns as far as the thumb takes it, and springs back when let go.
       steer += (touched.steer - steer) * (1 - Math.exp(-dt * 16));
@@ -710,21 +769,25 @@ export function startRally(host: RallyHost): Rally {
 
   const draw = (): void => {
     const { forward } = carSpeeds(trial.car);
-    const { eye, target } = chaseView(chase, trial.car);
+    const pitch = (calm ? 0 : dive) - tilt;
+    const mode = cameraMode;
+    const inCar = onBoard(mode);
+    const { eye, target } = inCar ? mountView(mode, trial.car, trial.height, pitch) : chaseView(chase, trial.car, rigFor(cameraMode));
     world.draw({
       car: trial.car,
       steer,
       rolled,
-      dive: (calm ? 0 : dive) - tilt,
+      dive: pitch,
       lean: calm ? 0 : lean,
       lift: trial.height,
       air: trial.airborne ? Math.max(0, trial.height - groundAt(stage.hazards, trial.progress)) : 0,
       animals: creaturesAt(stage, trial.time, trial.woke),
       lamps: lampStrength(light, lightsOn),
-      // The camera stands on the road behind the car, so a jump is seen from the ground.
-      eye: { ...eye, height: eye.height + groundAt(stage.hazards, trial.progress - chase.reach) },
-      target: { ...target, height: target.height + trial.height * 0.8 },
-      fov: chaseFov(forward, calm),
+      // The chase camera stands on the road behind the car, so a jump is seen from the ground. One on the car rides with it.
+      eye: inCar ? eye : { ...eye, height: eye.height + groundAt(stage.hazards, trial.progress - chase.reach) },
+      target: inCar ? target : { ...target, height: target.height + trial.height * 0.8 },
+      fov: inCar ? mountFov(mode, forward, calm) : chaseFov(forward, calm),
+      camera: cameraMode,
       dust,
       ghost: ghostNow(),
     });
@@ -896,7 +959,7 @@ export function startRally(host: RallyHost): Rally {
       waited += STEP;
       stepTrial(stage, trial, readInput(STEP), STEP);
       settleBody(before, STEP);
-      chase = stepChase(chase, trial.car, STEP);
+      chase = stepChase(chase, trial.car, STEP, rigFor(cameraMode));
       if (trial.event === 'splash') burst(60, 9, 1);
       else if (trial.event === 'knock') burst(26, 6, 0);
       else if (trial.event === 'land') burst(34, 5, 0);

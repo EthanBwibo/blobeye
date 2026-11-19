@@ -29,6 +29,7 @@ const { createWorld } = await import('./world');
 const { STAGES, buildStageOf } = await import('./stages');
 const { creaturesAt, newTrial } = await import('./stage');
 const { SKIES } = await import('./light');
+const { CAMERAS } = await import('./chase');
 
 const saved = { window: globalThis.window, document: globalThis.document, getComputedStyle: globalThis.getComputedStyle, Element: globalThis.Element };
 beforeAll(() => {
@@ -72,6 +73,8 @@ describe.each(STAGES.map((def) => [def.name, def] as const))('the world for %s',
     world.applyTheme();
     world.setLight('midday');
     expect(() => world.draw({ ...view, lamps: 0 })).not.toThrow();
+    // Every camera, round and back to the start, with the wheel at full lock: the cockpit is built, shown and hidden again.
+    for (const camera of [...CAMERAS, 'close'] as const) expect(() => world.draw({ ...view, camera, steer: 1 })).not.toThrow();
     world.dispose();
   });
 });

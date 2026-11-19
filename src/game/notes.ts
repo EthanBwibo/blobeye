@@ -14,6 +14,8 @@ export interface Corner {
   /** 1 is the tightest, 6 is nearly straight. For a corner that tightens, this is how it starts. */
   grade: number;
   change: 'tightens' | 'opens' | 'long' | null;
+  /** Tight and turning right back on itself: the handbrake's corner. */
+  hairpin?: boolean;
 }
 
 /** How much care a call asks for: none, or one to three exclamation marks. */
@@ -21,7 +23,7 @@ export type Caution = 0 | 1 | 2 | 3;
 
 /** What a call warns of, for the icon on the screen. */
 export type Sign =
-  | { kind: 'corner'; turn: Corner['turn']; grade: number; change: Corner['change']; caution: Caution }
+  | { kind: 'corner'; turn: Corner['turn']; grade: number; change: Corner['change']; caution: Caution; hairpin?: boolean }
   | { kind: 'crest' | 'water' | 'bridge' | 'sand' | 'mud' | 'washout' | 'grid'; caution: Caution }
   | { kind: 'animals'; animal?: 'zebra' | Species; caution: Caution }
   | { kind: 'rocks' | 'branch'; side: Corner['turn']; caution: Caution };
@@ -46,8 +48,12 @@ export function cornerCaution(grade: number, change: Corner['change']): Caution 
   return grade === 3 && tightens ? 1 : 0;
 }
 
+/** What the co-driver calls for a hairpin, written and said. */
+export const HAIRPIN_CALL = 'Hairpin, handbrake!';
+
 /** The note for a corner: "Left 4, tightens", said as "Left four, tightens". */
 export function cornerNote(c: Corner): Note {
+  if (c.hairpin) return { at: c.from, text: HAIRPIN_CALL, say: HAIRPIN_CALL, sign: { kind: 'corner', turn: c.turn, grade: 1, change: null, caution: 3, hairpin: true } };
   const tail = c.change ? `, ${c.change}` : '';
   return {
     at: c.from,
@@ -72,6 +78,9 @@ export const NOTES = {
   longest: 170,
   /** Bend, in radians per metre, below which a corner is a 6, a 5, a 4, a 3 and a 2. Tighter than the last is a 1. */
   grades: [0.006, 0.0085, 0.0115, 0.0155, 0.025],
+  /** A corner is a hairpin when somewhere it bends at least this sharply (radians per metre: about a 22 m radius) and in all it turns at least this far (radians). */
+  hairpinBend: 0.045,
+  hairpinTurn: 2.4,
 } as const;
 
 const turnBetween = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
@@ -111,7 +120,10 @@ export function corners(stage: Stage): Corner[] {
         const middle = (a + b) >> 1;
         const [early, late] = [gradeOf(tightest(a, middle)), gradeOf(tightest(middle, b))];
         const change = late < early ? 'tightens' : late > early ? 'opens' : (b - a) * NOTES.step > 120 ? 'long' : null;
-        found.push({ from: stage.startAt + a * NOTES.step, to: stage.startAt + b * NOTES.step, turn: side > 0 ? 'Right' : 'Left', grade: early, change });
+        const turned = Math.abs(bends.slice(a, b).reduce((sum, bend) => sum + bend, 0) * NOTES.step);
+        const corner: Corner = { from: stage.startAt + a * NOTES.step, to: stage.startAt + b * NOTES.step, turn: side > 0 ? 'Right' : 'Left', grade: early, change };
+        if (tightest(a, b) >= NOTES.hairpinBend && turned >= NOTES.hairpinTurn) Object.assign(corner, { grade: 1, change: null, hairpin: true });
+        found.push(corner);
       }
     }
     i = end;

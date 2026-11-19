@@ -1,5 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { BUZZ, FULL_TILT, STEADY, WHEEL_REACH, buzzFor, tiltSteer, wheelSteer } from './touch';
+import { BUZZ, FULL_TILT, STEADY, STEERING, WHEEL_REACH, buzzFor, nextSteering, padSteer, readSteering, tiltSteer, wheelSteer } from './touch';
+
+describe('the steering setting on a phone', () => {
+  it('goes round the wheel, tilt and the arrow pads', () => {
+    expect(STEERING).toEqual(['wheel', 'tilt', 'pads']);
+    expect(nextSteering('wheel')).toBe('tilt');
+    expect(nextSteering('tilt')).toBe('pads');
+    expect(nextSteering('pads')).toBe('wheel');
+  });
+
+  it('is read back from the device, and a phone that steered by tilt before there was a choice still does', () => {
+    expect(readSteering('pads')).toBe('pads');
+    expect(readSteering('tilt', 'off')).toBe('tilt');
+    expect(readSteering(null)).toBe('wheel');
+    expect(readSteering('joystick')).toBe('wheel');
+    expect(readSteering(null, 'on')).toBe('tilt');
+    expect(readSteering(null, 'off')).toBe('wheel');
+    // Once a choice is kept, the old setting no longer counts.
+    expect(readSteering('wheel', 'on')).toBe('wheel');
+  });
+
+  it('steers all or nothing on the arrow pads, and straight with both held', () => {
+    expect(padSteer(false, false)).toBe(0);
+    expect(padSteer(true, false)).toBe(-1);
+    expect(padSteer(false, true)).toBe(1);
+    expect(padSteer(true, true)).toBe(0);
+  });
+});
 
 describe('steering by tilting the phone', () => {
   // Held sideways with its top to the left (the screen turned 90°), tipped back to about 45°.

@@ -44,11 +44,13 @@ const NAIVASHA: StageDef = {
 const HELLS_GATE: StageDef = {
   id: 'hells-gate',
   name: "Hell's Gate",
-  blurb: 'Narrow, rocky and tight',
+  blurb: 'Narrow, rocky and tight, with a hairpin',
   route: [
     [0, 0], [110, 0], [170, -35], [165, -105], [105, -140], [55, -195], [70, -265], [140, -290], [210, -260],
     [265, -295], [280, -365], [230, -425], [150, -435], [95, -485], [110, -555], [190, -580], [280, -550],
     [340, -585], [355, -660], [300, -715], [210, -715], [130, -735], [60, -735],
+    // A hairpin before the finish, about 15 m across the middle, right back on itself: one for the handbrake.
+    [15, -737], [-8, -748], [-14, -762], [-4, -775], [20, -780], [70, -782], [150, -790],
   ],
   scale: 1,
   halfWidth: 5,
@@ -79,8 +81,8 @@ const HELLS_GATE: StageDef = {
     // A family of warthogs, tails up, across the road and back.
     animals: [{ kind: 'warthog', at: 1000, count: 3, span: 18, pace: 7, every: 6 }],
   },
-  // Set like Naivasha's against the tests' scripted driver, which takes about 67 seconds here, sand and washout included.
-  targets: { gold: 65, silver: 71, bronze: 80 },
+  // Set like Naivasha's against the tests' scripted driver, which takes about 77 seconds here, sand, washout and hairpin included.
+  targets: { gold: 76, silver: 82, bronze: 92 },
   bush: { density: 0.8, trees: 0.03, rocks: 0.22, seed: 1977 },
 };
 

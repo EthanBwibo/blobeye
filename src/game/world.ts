@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import { WHEELS } from '../car/model';
 import { createCar } from '../scene/carScene';
 import { lightStudio } from '../scene/studio';
-import type { Place } from './chase';
+import type { CameraMode, Place } from './chase';
 import type { CarState } from './handling';
 import { VERGE, branchParts, groundAt, roomAt, type Species } from './hazards';
 import { SKIES, type Light } from './light';
@@ -31,6 +31,10 @@ export const MOST_DUST = 420;
 const GHOST_OPACITY = 0.32;
 /** The front wheels turn this far at full lock, in radians. */
 const FULL_LOCK = 0.42;
+/** The steering wheel in the cockpit turns this far at full lock, in radians. */
+const WHEEL_TURN = 2.2;
+/** How close the camera may see: far enough for the chase camera, close enough for the dashboard. */
+const NEAR = { outside: 0.5, onBoard: 0.1 } as const;
 
 /** One puff of dust, or of spray from the ford. */
 export interface Puff {
@@ -69,6 +73,8 @@ export interface View {
   dust: readonly Puff[];
   /** Where the best run's car is, or null for no ghost. */
   ghost: GhostPose | null;
+  /** Which camera: from the cockpit the car's body gives way to a dashboard, a wheel and the pillars. The close chase if left out. */
+  camera?: CameraMode;
 }
 
 export interface WorldOptions {
@@ -395,7 +401,7 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
   const scene = new THREE.Scene();
   const fog = new THREE.Fog(0, SKIES.dusk.fog.near, SKIES.dusk.fog.far);
   scene.fog = fog;
-  const camera = new THREE.PerspectiveCamera(58, 1, 0.5, 2600);
+  const camera = new THREE.PerspectiveCamera(58, 1, NEAR.outside, 2600);
 
   /** A flat colour, lit by the headlights where they fall. The sky and the hills are too far away for them. */
   const flat = (options: THREE.MeshBasicMaterialParameters = {}) => litByLamps(new THREE.MeshBasicMaterial(options));
@@ -796,6 +802,81 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
   // Turn to the heading first, then dip the nose, then lean.
   car.group.rotation.order = 'YXZ';
   scene.add(car.group);
+  // The cockpit, for the camera in the driver's seat: in the car's own units and frame (+z to the front, -x to
+  // its right, where the driver sits), with the body hidden around it. Flat and low-poly, like the stage.
+  const body = car.group.children.filter((part) => part.visible);
+  const cockpit = new THREE.Group();
+  cockpit.visible = false;
+  const inside = {
+    trim: far(),
+    paint: far(),
+    wheel: far(),
+    mark: far(),
+    dial: far(),
+  };
+  const box = (w: number, h: number, d: number, x: number, y: number, z: number, material: THREE.Material, tip = 0): THREE.Mesh => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    mesh.position.set(x, y, z);
+    mesh.rotation.x = tip;
+    cockpit.add(mesh);
+    return mesh;
+  };
+  /** A square beam from one point to another. */
+  const beam = (a: THREE.Vector3, b: THREE.Vector3, thick: number, material: THREE.Material): void => {
+    const way = b.clone().sub(a);
+    const shape = new THREE.CylinderGeometry(thick, thick, way.length(), 4, 1);
+    shape.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), way.normalize()));
+    shape.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+    cockpit.add(new THREE.Mesh(shape, material));
+  };
+  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  const DRIVER = -8;
+  // The bonnet ahead, falling away to the nose, and the scoop on it.
+  box(31, 0.6, 23.5, 0, 20.6, 32.5, inside.paint, 0.165);
+  box(9, 2.6, 7, 0, 22.4, 29.5, inside.paint, 0.165);
+  box(7, 1.6, 0.4, 0, 22.6, 33.1, inside.trim, 0.165);
+  // The dashboard across the car, and the hood over the instruments in front of the driver, with two dials.
+  box(36, 5, 10, 0, 19.5, 15, inside.trim);
+  box(11, 2.4, 4.5, DRIVER, 22.6, 11.6, inside.trim, -0.2);
+  for (const dx of [-2.6, 2.6]) {
+    const dial = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 0.3, 10), inside.dial);
+    dial.rotation.x = Math.PI / 2 - 0.35;
+    dial.position.set(DRIVER + dx, 21.4, 9.9);
+    cockpit.add(dial);
+  }
+  // The A-pillars, from the scuttle up to the roof, the header rail over the screen, the roof, the tops of the doors and the mirror.
+  for (const side of [-1, 1]) {
+    beam(v(side * 16.2, 22.4, 20.5), v(side * 12.4, 32.2, 6), 1.1, inside.trim);
+    beam(v(side * 16.8, 22, 19), v(side * 18.2, 21.6, -12), 0.9, inside.trim);
+  }
+  beam(v(-12.6, 32.2, 6), v(12.6, 32.2, 6), 1.2, inside.trim);
+  box(25, 0.5, 26, 0, 33, -7, inside.trim);
+  box(5.5, 1.6, 0.8, 0, 29.6, 6.6, inside.trim);
+  box(0.6, 2.4, 0.6, 0, 31.4, 6.3, inside.trim);
+  // The wheel, raked back on its column: a rim, three spokes, a hub and a mark at the top that shows how far it is turned.
+  const column = new THREE.Group();
+  column.position.set(DRIVER, 19.6, 6.8);
+  column.rotation.x = 0.42;
+  cockpit.add(column);
+  const steering = new THREE.Group();
+  column.add(steering);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(4.3, 0.55, 5, 14), inside.wheel);
+  steering.add(rim);
+  for (const angle of [0, Math.PI, -Math.PI / 2]) {
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(4.1, 0.9, 0.5), inside.wheel);
+    spoke.position.set(Math.cos(angle) * 2.15, Math.sin(angle) * 2.15, 0);
+    spoke.rotation.z = angle;
+    steering.add(spoke);
+  }
+  steering.add(new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.9, 8).rotateX(Math.PI / 2), inside.wheel));
+  const mark = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.3, 1.3), inside.mark);
+  mark.position.set(0, 4.3, 0);
+  steering.add(mark);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 7, 6).rotateX(Math.PI / 2).translate(0, 0, 3.5), inside.trim);
+  column.add(shaft);
+  car.group.add(cockpit);
+  let inCockpit = false;
+
   // The ghost: the same car again, see-through. It cannot be hit.
   const ghost = createCar();
   ghost.group.scale.setScalar(UNIT);
@@ -874,6 +955,11 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
     mat.reflector.color = token('--reflector');
     // On the earth the car's shadow is brown, not the blue it casts on the drawing sheet.
     car.applyTheme((name) => token(name === '--ground-shade' ? '--stage-shade' : name));
+    inside.trim.color = token('--body-dark');
+    inside.paint.color = token('--body-blue');
+    inside.wheel.color = token('--ink');
+    inside.mark.color = token('--gold');
+    inside.dial.color = token('--paper');
     ghost.applyTheme((name) => token(name === '--ground-shade' ? '--stage-shade' : name));
   };
   applyTheme();
@@ -900,6 +986,19 @@ export function createWorld(stage: Stage, options: WorldOptions = {}): World {
     car.setSteer(view.steer * FULL_LOCK);
     car.setRoll(view.rolled / (WHEELS.radius * UNIT));
     car.setAir(view.air / UNIT);
+    const mode = view.camera ?? 'close';
+    if ((mode === 'cockpit') !== inCockpit) {
+      inCockpit = mode === 'cockpit';
+      for (const part of body) part.visible = !inCockpit;
+      cockpit.visible = inCockpit;
+    }
+    // Turning right turns the wheel clockwise, as the driver sees it.
+    steering.rotation.z = view.steer * WHEEL_TURN;
+    const near = mode === 'bonnet' || mode === 'cockpit' ? NEAR.onBoard : NEAR.outside;
+    if (camera.near !== near) {
+      camera.near = near;
+      camera.updateProjectionMatrix();
+    }
 
     ghost.group.visible = view.ghost !== null;
     if (view.ghost) {
