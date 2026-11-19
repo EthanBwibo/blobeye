@@ -12,6 +12,12 @@ export function pickPlate(roll: number): PlateWord {
   return PLATE_WORDS[Math.floor(safe * PLATE_WORDS.length)]!;
 }
 
+/**
+ * The word on this visit's plates: picked once for each load of the page, so the drawing, the game and the
+ * share card agree.
+ */
+export const PLATE_WORD: PlateWord = pickPlate(Math.random());
+
 /** Where each plate sits and how big it is, in car units: its middle height, its width and its height. */
 export const PLATES = {
   front: { y: 11.2, width: 9.4, height: 2.3 },
